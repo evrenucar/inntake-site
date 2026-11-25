@@ -6,6 +6,7 @@ let opening;
 const changes = typeof window !== 'undefined' && 'BroadcastChannel' in window ? new BroadcastChannel('inntake:' + namespace) : null;
 if (changes) changes.onmessage = event => {
   window.dispatchEvent(new Event('inntake-metadata-saved'));
+  if (event.data === 'sync') window.dispatchEvent(new Event('inntake-other-tab-synced'));
   if (event.data === 'edit') window.dispatchEvent(new Event('inntake-local-edit'));
   if (event.data === 'options') window.dispatchEvent(new Event('inntake-sync-options'));
   if (event.data === 'connection') window.dispatchEvent(new Event('inntake-connection-changed'));

@@ -18,6 +18,8 @@ function snapshot(library) {
     const {parents, icons, appearance, pinned} = library.settings;
     rows.set('collection:' + name, {name, parent:parents[name] ?? null, icon:icons[name], appearance:appearance[name], pinned:pinned.includes(name)});
   }
+  for (const link of library.settings.youtubePlaylists || []) rows.set('youtubeLink:' + JSON.stringify([link.collection, link.id]), link);
+  for (const job of library.settings.youtubeRequests || []) rows.set('youtubeRequest:' + job.key, job);
   if (library.settings.order.length) rows.set('order', library.settings.order);
   return rows;
 }
@@ -52,13 +54,15 @@ export async function mergeLibraries(local, remote, base = {}, resolutions = {})
     if (picked !== undefined) rows.set(key, picked);
   }
   if (conflicts.length) return {conflicts};
-  const items = [], collections = [];
+  const items = [], collections = [], youtubePlaylists = [], youtubeRequests = [];
   const parents = Object.create(null), icons = Object.create(null), appearance = Object.create(null), pinned = [];
   for (const [key, row] of rows) {
     if (key.startsWith('item:')) {
       const old = left.get(key), unchanged = localHashes[key] === remoteHashes[key] || row === old;
       items.push({...row, revision:unchanged && old ? old.revision : crypto.randomUUID(), captureHash:row.captureHash ?? old?.captureHash});
-    } else if (key.startsWith('collection:')) {
+    } else if (key.startsWith('youtubeLink:')) youtubePlaylists.push(row);
+    else if (key.startsWith('youtubeRequest:')) youtubeRequests.push(row);
+    else if (key.startsWith('collection:')) {
       collections.push(row.name);
       parents[row.name] = row.parent;
       if (row.icon) icons[row.name] = row.icon;
@@ -66,7 +70,7 @@ export async function mergeLibraries(local, remote, base = {}, resolutions = {})
       if (row.pinned) pinned.push(row.name);
     }
   }
-  const library = normalizeLibrary({version:1, collections, items, settings:{parents, icons, appearance, pinned, order:rows.get('order') || []}});
+  const library = normalizeLibrary({version:1, collections, items, settings:{youtubePlaylists, youtubeRequests, sharedRepositories:remote.settings.sharedRepositories, parents, icons, appearance, pinned, order:rows.get('order') || []}});
   return {library, hashes:await fingerprints(snapshot(library))};
 }
 

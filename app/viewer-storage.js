@@ -1,3 +1,4 @@
+import {playlistRows, queuePlaylist} from './playlist-requests.js';
 import {exclusive, libraryView, mounted, readValue} from './browser-store.js';
 const libraryKey = 'inntake-local-library-v1';
 const libraryId = 'inntake-browser-library' + (mounted === null ? '' : ':' + mounted.toLowerCase());
@@ -56,6 +57,12 @@ function metadataText(value) {
   return typeof value === 'string' ? value.replace(/\s+/g, ' ').trim().slice(0, 200) : '';
 }
 
+function redditPost(url) {
+  if (url.hostname === 'redd.it') return /^\/[a-z0-9]+\/?$/i.test(url.pathname);
+  return /^(?:www\.|old\.|new\.|m\.)?reddit\.com$/i.test(url.hostname)
+    && /^\/(?:r\/[a-z0-9_]+\/)?(?:s|comments)\/[a-z0-9]+(?:\/|$)/i.test(url.pathname);
+}
+
 function fallbackTitle(value) {
   const url = new URL(value);
   if (youtubeId(value)) return url.hostname;
@@ -64,7 +71,12 @@ function fallbackTitle(value) {
   const tail = post ? post[1] : url.pathname.split('/').filter(Boolean).at(-1) || '';
   let title = '';
   try { title = metadataText(decodeURIComponent(tail).replace(/\.html?$/i, '').replace(/[-_]+/g, ' ')); } catch {}
-  return title && (post || (title.includes(' ') && /\p{L}{3}/u.test(title))) ? title[0].toUpperCase() + title.slice(1) : url.hostname;
+  if (title && ((post && post[1] !== 'comment') || (title.includes(' ') && /\p{L}{3}/u.test(title)))) return title[0].toUpperCase() + title.slice(1);
+  if (redditPost(url)) {
+    const sub = /^\/r\/([a-z0-9_]+)\//i.exec(url.pathname);
+    return sub ? 'Post in r/' + sub[1] : 'Reddit post';
+  }
+  return url.hostname;
 }
 
 function category(value) {
@@ -171,6 +183,7 @@ export function normalizeLibrary(value, backup = false) {
   if (new Set(items.map(item => item.id)).size !== items.length) throw new LocalError('The browser library contains duplicate item IDs.');
   const collections = unique([...names(value.collections), ...items.flatMap(item => item.collections)]);
   const settings = object(value.settings) ? value.settings : {};
+  const sharedRepositories = dictionary(object(settings.sharedRepositories) ? settings.sharedRepositories : {});
   const parents = dictionary(Object.fromEntries(collections.map(collection => [collection, null])));
   const icons = dictionary(), appearance = dictionary();
   for (const collection of collections) {
@@ -184,7 +197,7 @@ export function normalizeLibrary(value, backup = false) {
   assertHierarchy(parents);
   const pinned = names(settings.pinned ?? []).filter(collection => has(parents, collection));
   const order = names(settings.order ?? []).filter(collection => has(parents, collection));
-  return {version: 1, collections, items, settings: {version: 1, parents, icons, appearance, pinned, order},
+  return {version: 1, collections, items, settings: {version: 1, youtubePlaylists:settings.youtubePlaylists || [], youtubeRequests:settings.youtubeRequests || [], sharedRepositories, parents, icons, appearance, pinned, order},
     revision: typeof value.revision === 'string' ? value.revision : 'legacy',
     settingsRevision: typeof value.settingsRevision === 'string' ? value.settingsRevision : null};
 }
@@ -218,7 +231,9 @@ function display(record) {
   const item = {category: record.category, collection: record.collection, collections: record.collections, body: record.body, notes: record.note,
     strengths: section(record.body, 'Strengths'), limitations: section(record.body, 'Limitations'), archived: record.archived, trashed: record.trashed,
     core: record.core, impact: record.impact, revision: record.revision};
-  const source = {id: record.id, title: record.title, summary: section(record.body, 'Summary') || record.youtubeAuthor || '', category: record.category, collection: record.collection,
+  const title = /^(?:(?:www|old|new|m)\.)?reddit\.com$|^redd\.it$/i.test(record.title) && record.url && redditPost(new URL(record.url))
+    ? fallbackTitle(record.url) : record.title;
+  const source = {id: record.id, title, summary: section(record.body, 'Summary') || record.youtubeAuthor || '', category: record.category, collection: record.collection,
     collections: record.collections, tags: [], addedAt: record.createdAt, updatedAt: record.updatedAt, url: record.url, urls: [record.url],
     path: `entries/${record.id}.md`, sourceType: 'note', images: [], attachments: [], fullText: record.body, relatedIds: []};
   if (record.canonical) {
@@ -240,8 +255,8 @@ function display(record) {
 function catalog(data) {
   const records = data.items.map(display);
   return {sources: records.map(record => record.source), items: Object.fromEntries(records.map(record => [record.source.id, record.item])),
-    errors: [], version: data.revision, libraryId, collectionIcons: data.settings.icons, collectionIconsRevision: data.settingsRevision,
-    collectionParents: data.settings.parents, pinnedCollections: data.settings.pinned, collectionAppearance: data.settings.appearance, collectionOrder: data.settings.order, youtubePlaylists: []};
+    errors: [], version: data.revision, libraryId, sharedRepositories:data.settings.sharedRepositories, collectionIcons: data.settings.icons, collectionIconsRevision: data.settingsRevision,
+    collectionParents: data.settings.parents, pinnedCollections: data.settings.pinned, collectionAppearance: data.settings.appearance, collectionOrder: data.settings.order, youtubePlaylists: playlistRows(data.settings)};
 }
 
 async function capture(storage, input) {
@@ -269,11 +284,15 @@ async function capture(storage, input) {
   return {created: true, ...display(record)};
 }
 
-async function enrichYouTubeTitle(storage, nativeFetch, source) {
+const attemptedRedditTitles = new Set();
+
+async function enrichLinkTitle(storage, nativeFetch, source) {
   const video = youtubeId(source.url);
-  if (!video) return;
-  const endpoint = new URL('https://www.youtube.com/oembed');
-  endpoint.searchParams.set('url', `https://www.youtube.com/watch?v=${video}`);
+  const url = new URL(source.url);
+  if (!video && (!redditPost(url) || attemptedRedditTitles.has(source.id))) return;
+  if (!video) attemptedRedditTitles.add(source.id);
+  const endpoint = new URL(video ? 'https://www.youtube.com/oembed' : 'https://www.reddit.com/oembed');
+  endpoint.searchParams.set('url', video ? `https://www.youtube.com/watch?v=${video}` : url.origin + url.pathname);
   endpoint.searchParams.set('format', 'json');
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 4000);
@@ -281,21 +300,28 @@ async function enrichYouTubeTitle(storage, nativeFetch, source) {
     const response = await nativeFetch(endpoint, {mode: 'cors', credentials: 'omit', redirect: 'error', referrerPolicy: 'no-referrer', signal: controller.signal});
     if (!response.ok) return;
     const result = await response.json();
-    const title = metadataText(result.title);
-    if (!title) return;
+    let title = metadataText(result.title);
+    if (!video && (!title || /^reddit(?:$|\s*[-:|])/i.test(title))) {
+      // Reddit may put the post title in its first embed link. Read text only.
+      const template = document.createElement('template');
+      template.innerHTML = typeof result.html === 'string' ? result.html : '';
+      title = metadataText(template.content.querySelector('blockquote a')?.textContent);
+      if (['reddit', 'comment', 'view post'].includes(title.toLowerCase())) title = '';
+    }
+    if (!title || title === source.title) return;
     await writeLibrary(storage, () => {
       const data = load(storage);
       const current = data.items.find(item => item.id === source.id);
       if (!current || current.trashed || current.url !== source.url || current.title !== source.title) return;
       current.title = title;
       const author = metadataText(result.author_name);
-      if (author) current.youtubeAuthor = author;
+      if (video && author) current.youtubeAuthor = author;
       // The display title can arrive while the user edits the note. Leave its revision and body alone.
       save(storage, data);
       if (typeof window !== 'undefined') window.dispatchEvent(new Event('inntake-metadata-saved'));
     });
   } catch {
-    // The URL and user's note are already saved if YouTube is unavailable.
+    // The capture stays usable when a site's metadata is unavailable.
   } finally { clearTimeout(timer); }
 }
 
@@ -404,13 +430,23 @@ export function createLocalFetch(storage, nativeFetch, base = appBase) {
     if (!route.startsWith('/api/') && !route.startsWith('/files/')) return nativeFetch(input, init);
     try {
       if (method === 'GET' && route === '/api/health') return json({app: 'personal-reference-library', libraryId});
-      if (method === 'GET' && route === '/api/catalog') return json(catalog(load(storage)));
+      if (method === 'GET' && route === '/api/catalog') {
+        const data = load(storage);
+        const result = catalog(data);
+        if (globalThis.navigator?.onLine !== false) {
+          // Repair legacy auto-titled captures, one per catalog visit.
+          const item = data.items.find(item => item.captureHash && !item.trashed && item.url && !attemptedRedditTitles.has(item.id)
+            && (item.title === new URL(item.url).hostname || /^(Reddit post|Post in r\/[a-z0-9_]+)$/i.test(item.title))
+            && redditPost(new URL(item.url)));
+          if (item) void enrichLinkTitle(storage, nativeFetch, item);
+        }
+        return json(result);
+      }
       if (method === 'GET' && route === '/api/backup') return json({format: backupFormat, ...load(storage)}, 200, {'Content-Disposition': 'attachment; filename="inntake-library.json"'});
       if (method === 'GET' && route.startsWith('/files/')) {
         const body = markdown(storage, route.slice('/files/'.length));
         if (body !== null) return new Response(body, {headers: {'Content-Type': 'text/plain; charset=utf-8'}});
       }
-      if (route.startsWith('/api/youtube-')) return json({error: 'Playlist syncing requires the connected library.'}, 501);
       if (method !== 'POST') return json({error: 'This feature is unavailable in the browser library.'}, 404);
       const raw = init.body ?? (input instanceof Request ? await input.text() : '');
       if (route === '/api/restore') {
@@ -419,9 +455,20 @@ export function createLocalFetch(storage, nativeFetch, base = appBase) {
       }
       const data = JSON.parse(raw);
       if (!object(data)) throw new LocalError('Expected a JSON object.');
+      if (route === '/api/youtube-playlist') {
+        if (!await readValue('state', 'sync')) throw new LocalError('Connect your Mac workspace in Settings to import playlists.');
+        return json(await writeLibrary(storage, () => {
+          const library = load(storage);
+          let result;
+          try { result = queuePlaylist(library, data); }
+          catch (error) { throw new LocalError(error.message); }
+          save(storage, library, true);
+          return result;
+        }));
+      }
       if (route === '/api/items') {
         const result = await writeLibrary(storage, () => capture(storage, data));
-        if (result.created && !data.image && !data.title?.trim()) void enrichYouTubeTitle(storage, nativeFetch, result.source);
+        if (result.created && !data.image && !data.title?.trim()) void enrichLinkTitle(storage, nativeFetch, result.source);
         return json(result, result.created ? 201 : 200);
       }
       if (route === '/api/collections' || route === '/api/collection-icon') return json(await writeLibrary(storage, () => saveCollection(storage, data, route.endsWith('icon'))));

@@ -655,7 +655,7 @@ function collectionMenu(name, inHeader = false) {
     ['New subcollection', () => openCollectionDialog(true, name)],
     ['Edit collection', () => openCollectionDialog(false, null, name)]
   ] : [];
-  if (name && !browserLocalViewer) actions.push(['Link playlist…', () => openPlaylistLink(name)]);
+  if (name) actions.push(['Link playlist…', () => openPlaylistLink(name)]);
   if (inHeader) {
     const show = $('#archive-filter').value !== 'trash';
     actions.push([show ? 'Trash' : 'Back to items', () => showTrash(show)]);
@@ -1145,6 +1145,32 @@ function updatePanelCollection(source) {
   for (const name of itemCollections(source)) { const tag = element('span', 'collection-tag', collectionPath(name).join(' / ')); tag.prepend(collectionIconNode(name)); label.append(tag); }
 }
 
+function renderSharedRepositories(repositories) {
+  const nav = $('#shared-collections');
+  nav.replaceChildren();
+  const here = browserLocalViewer && new URL(location.href).searchParams.get('library')?.toLowerCase();
+  if (here) {
+    const home = element('a', '', '← My library');
+    home.href = new URL(location.pathname, location.origin).href;
+    nav.append(home);
+  }
+  for (const [name, repo] of Object.entries(repositories || {})) {
+    if (typeof repo !== 'string' || !/^[a-z0-9][a-z0-9-]{0,38}\/[a-z0-9_.-]{1,100}$/i.test(repo) || repo.split('/')[1].match(/^\.{1,2}$/) || repo.toLowerCase() === here) continue;
+    const url = browserLocalViewer ? new URL(location.pathname, location.origin) : new URL('https://inntake.app/app/');
+    url.searchParams.set('library', repo.toLowerCase());
+    url.searchParams.set('collection', name);
+    const link = element('a', '', name);
+    link.href = url.href;
+    link.title = 'Shared collection · ' + repo;
+    const marker = element('span', '', '↗');
+    marker.setAttribute('aria-hidden', 'true');
+    link.prepend(marker);
+    nav.append(link);
+  }
+  nav.hidden = !nav.childElementCount;
+}
+let requestedCollection = browserLocalViewer && new URLSearchParams(location.search).get('library')
+  ? new URLSearchParams(location.search).get('collection') : null;
 function updateFilters() {
   const nav = $('#categories');
   nav.replaceChildren();
@@ -1164,6 +1190,10 @@ function updateFilters() {
     try { previous = localStorage.getItem(`personal-library-collection-${libraryId}`) ?? previous; } catch {}
   }
   const collections = sortedCollections();
+  if (requestedCollection && collections.includes(requestedCollection)) {
+    previous = requestedCollection;
+    requestedCollection = null;
+  }
   select.replaceChildren(element('option', '', 'All items'));
   select.firstChild.value = '';
   for (const name of collections) {
@@ -2053,7 +2083,6 @@ function captureLink(value) {
 }
 
 function isYouTubePlaylist(value) {
-  if (browserLocalViewer) return false;
   const url = webLink(value.trim());
   return Boolean(url && /^(?:(?:www|m|music)\.)?youtube\.com$/.test(url.hostname) && /^\/playlist\/?$/.test(url.pathname));
 }
@@ -2298,6 +2327,16 @@ $('#capture-paste').addEventListener('click', async () => {
 });
 
 let requestedItem = browserLocalViewer ? new URLSearchParams(location.search).get('item') : null;
+function showSyncState(state) {
+  const indicator = $('#sync-indicator');
+  const labels = {local:'On device', pending:'Pending sync', syncing:'Syncing…', synced:'Synced', offline:'Offline · on device',
+    waiting:'Will retry', conflict:'Review sync', auth:'Reconnect GitHub', paused:'Sync paused', checking:'Checking sync…'};
+  const label = labels[state];
+  indicator.hidden = !label;
+  indicator.dataset.state = state || '';
+  if (indicator.textContent !== (label || '')) indicator.textContent = label || '';
+}
+window.addEventListener('inntake-sync-state', event => showSyncState(event.detail));
 async function loadCatalog(manual = false) {
   if (loading || saving || captureSaving || iconSaving || organizing || draggingItem || draggingCollection || document.querySelector('.collection-menu[open]') || pendingArchives.size || pendingImpacts.size) return false;
   loading = true;
@@ -2307,6 +2346,7 @@ async function loadCatalog(manual = false) {
       ? (await response.json()).error || 'Could not read your browser library.'
       : 'Could not load the library. Keep the launcher window open and try Refresh.');
     const catalog = await response.json();
+    if (!browserLocalViewer) showSyncState(catalog.syncStatus);
     libraryId = catalog.libraryId;
     updateCaptureButtons();
     if (!draftsLoaded) {
@@ -2321,6 +2361,7 @@ async function loadCatalog(manual = false) {
     // A save can begin while the fetch is in flight. Let its result win.
     if (saving || captureSaving || iconSaving || organizing || draggingItem || draggingCollection || pendingArchives.size || pendingImpacts.size) return;
     catalogVersion = catalog.version;
+    renderSharedRepositories(catalog.sharedRepositories);
     sources = catalog.sources;
     annotations = catalog.items;
     collectionParents = catalog.collectionParents || {};
@@ -2418,6 +2459,7 @@ async function requestPlaylistChange(action, playlist, collection) {
 
 function playlistVideoCount(count) { return `${count} ${count === 1 ? 'video' : 'videos'}`; }
 function playlistImportMessage(result, collection) {
+  if (result.queued) return 'Queued for your connected Mac.';
   if (result.changed) return `Added ${playlistVideoCount(result.changed)}${collection ? ` to ${collection}` : ''}.`;
   return result.total ? 'All feed videos are already saved here.' : 'YouTube’s feed has no videos to import.';
 }
@@ -2433,23 +2475,25 @@ function renderLinkedPlaylists(collection) {
     const summary = element('summary');
     summary.setAttribute('aria-label', `${link.title}, ${playlistVideoCount(link.count)}`);
     summary.title = link.title;
-    summary.append(element('span', 'playlist-name', link.title), element('span', 'playlist-size', link.count.toString()));
+    summary.append(element('span', 'playlist-name', link.title), element('span', 'playlist-size', link.error ? 'Retry' : link.queued ? 'Queued' : link.count.toString()));
     const options = element('div', 'collection-menu-options');
     const original = sourceLink({url: 'https://www.youtube.com/playlist?list=' + link.id}, link.title);
     original.setAttribute('aria-label', `Open ${link.title} on YouTube`);
     options.append(original);
-    const refresh = element('button', '', 'Refresh');
-    const unlink = element('button', '', 'Unlink');
-    for (const [button, action] of [[refresh, 'refresh'], [unlink, 'unlink']]) {
+    const refresh = element('button', '', link.error ? 'Retry' : 'Refresh');
+    const unlink = element('button', '', link.queued && !link.video_ids ? 'Cancel' : 'Unlink');
+    if (link.error) options.append(element('p', 'hint', link.error));
+    for (const [button, action] of [[refresh, link.request || 'refresh'], [unlink, 'unlink']]) {
+      if (button === refresh && link.queued && !link.error) button.disabled = true;
       button.setAttribute('aria-label', `${button.textContent} ${link.title}`);
       button.addEventListener('click', async () => {
         menu.open = false;
         refresh.disabled = unlink.disabled = true;
-        actionStatus(action === 'refresh' ? 'Checking playlist…' : 'Unlinking playlist…');
+        actionStatus(action === 'unlink' ? 'Unlinking playlist…' : 'Checking playlist…');
         try {
           const result = await requestPlaylistChange(action, link.id, collection);
           await loadCatalog(true);
-          successStatus(action === 'unlink' ? 'Playlist unlinked. Videos kept.' : result.changed ? `Added ${playlistVideoCount(result.changed)}.` : 'Playlist is up to date.');
+          successStatus(result.queued ? 'Queued for your connected Mac.' : action === 'unlink' ? 'Playlist unlinked. Videos kept.' : result.changed ? `Added ${playlistVideoCount(result.changed)}.` : 'Playlist is up to date.');
         } catch (error) { actionStatus(error.message); }
         finally { refresh.disabled = unlink.disabled = false; }
       });
@@ -2484,7 +2528,7 @@ playlistLinkForm.addEventListener('submit', async event => {
     await loadCatalog(true);
     playlistLinkDialog.close();
     chooseCollection(collection);
-    successStatus(`Playlist linked · ${playlistVideoCount(result.total)}.`);
+    successStatus(result.queued ? 'Queued for your connected Mac.' : `Playlist linked · ${playlistVideoCount(result.total)}.`);
   } catch (error) { status.textContent = error.message; }
   finally { playlistLinkSubmit.disabled = input.readOnly = false; }
 });

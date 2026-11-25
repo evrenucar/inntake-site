@@ -14,6 +14,18 @@ const status = panel.querySelector('[role=status]');
 const choices = panel.querySelector('.github-conflicts');
 let resolutions = Object.create(null);
 let connected = false, sessionToken = '', busy = false;
+let bound = false, dirty = false, issue = '', transferring = false;
+function renderSyncState() {
+  let state = '';
+  if (issue) state = issue;
+  else if (!bound) state = dirty ? 'local' : '';
+  else if (!connected) state = 'auth';
+  else if (!navigator.onLine) state = 'offline';
+  else if (transferring) state = 'syncing';
+  else if (!automatic.checked && dirty) state = 'paused';
+  else state = dirty ? 'pending' : 'synced';
+  window.dispatchEvent(new CustomEvent('inntake-sync-state', {detail:state}));
+}
 const report = message => { status.textContent = message; };
 const settingsButton = document.querySelector('#settings-open');
 function attention(message) {
@@ -31,7 +43,8 @@ async function saveCredential(secret) {
   await writeValues('state', [['githubCredential', {key, iv, ciphertext}]]);
 }
 async function restoreConnection() {
-  const [state, credential, options] = await Promise.all(['sync','githubCredential','githubOptions'].map(key => readValue('state',key)));
+  const [state, credential, options, pending] = await Promise.all(['sync','githubCredential','githubOptions','syncDirty'].map(key => readValue('state',key)));
+  bound = !!state; dirty = pending !== false && (bound || !!pending); issue = '';
   if (state) {
     repo.value = state.repo; repo.readOnly = true;
     branch.value = state.branch; branch.readOnly = true;
@@ -44,9 +57,11 @@ async function restoreConnection() {
   } else sessionToken = '';
   connected = !!state && !!sessionToken;
   forget.hidden = !connected;
+  renderSyncState();
   if (connected) scheduler.resume();
 }
 function showConflicts(conflicts) {
+  issue = 'conflict';
   attention('Review sync conflicts in Settings');
   report('These changed on both devices. Choose each version, then sync again.');
   resolutions = Object.create(null);
@@ -70,10 +85,13 @@ async function perform(manual) {
   busy = true; run.disabled = true;
   try {
     const secret = (manual && token.value.trim()) || sessionToken;
-    const result = await syncWorkspace({repo:repo.value, branch:branch.value.trim(), token:secret, report, resolutions, automatic:!manual});
+    const progress = message => { transferring = true; renderSyncState(); report(message); };
+    const result = await syncWorkspace({repo:repo.value, branch:branch.value.trim(), token:secret, report:progress, resolutions, automatic:!manual});
     choices.replaceChildren();
     if (result.conflicts) { showConflicts(result.conflicts); return {pause:true}; }
-    if (result.retry) return {pending:true};
+    if (result.retry) { dirty = true; return {pending:true}; }
+    dirty = !!(await readValue('state', 'syncDirty'));
+    bound = true; issue = '';
     resolutions = Object.create(null);
     if (manual) {
       sessionToken = secret;
@@ -90,14 +108,16 @@ async function perform(manual) {
     return result;
   } catch (err) {
     if (err.authRequired || err.status === 401 || err.status === 403) {
+      issue = 'auth';
       attention('Reconnect to GitHub in Settings');
       report('Reconnect to GitHub in Settings. Your edits are saved.');
       return {pause:true};
     }
+    issue = navigator.onLine ? 'waiting' : 'offline';
     if (manual) report(err.message || 'Could not sync. Your edits are saved.');
     else report('Changes saved on this device · retrying sync');
     throw err;
-  } finally { busy = false; run.disabled = false; }
+  } finally { busy = false; transferring = false; run.disabled = false; renderSyncState(); }
 }
 const scheduler = autoSync({
   available:() => connected && automatic.checked && navigator.onLine && !document.hidden,
@@ -111,17 +131,22 @@ async function manualSync() {
   } catch { scheduler.schedule(15000); }
 }
 if (mounted !== null) { repo.value = mounted; repo.readOnly = true; }
-restoreConnection().catch(() => report('Reconnect to GitHub to sync this library.'));
+restoreConnection().catch(() => { issue = 'auth'; renderSyncState(); report('Reconnect to GitHub to sync this library.'); });
 run.addEventListener('click', manualSync);
-window.addEventListener('inntake-local-edit', () => scheduler.schedule(1200));
-window.addEventListener('online', () => scheduler.schedule());
-window.addEventListener('offline', () => { scheduler.stop(); if (connected) report('Offline · changes saved on this device'); });
+window.addEventListener('inntake-local-edit', () => { dirty = true; renderSyncState(); scheduler.schedule(1200); });
+window.addEventListener('inntake-other-tab-synced', async () => {
+  dirty = !!(await readValue('state', 'syncDirty'));
+  if (connected && !dirty) issue = '';
+  renderSyncState();
+});
+window.addEventListener('online', () => { if (issue === 'offline') issue = ''; renderSyncState(); scheduler.schedule(); });
+window.addEventListener('offline', () => { scheduler.stop(); renderSyncState(); if (connected) report('Offline · changes saved on this device'); });
 document.addEventListener('visibilitychange', () => scheduler.schedule());
 window.addEventListener('pageshow', () => scheduler.schedule());
-automatic.addEventListener('change', async () => { await options(); notifySyncOptions(); scheduler.schedule(); });
+automatic.addEventListener('change', async () => { await options(); renderSyncState(); notifySyncOptions(); scheduler.schedule(); });
 window.addEventListener('inntake-sync-options', async () => {
   automatic.checked = (await readValue('state','githubOptions'))?.automatic !== false;
-  scheduler.schedule();
+  renderSyncState(); scheduler.schedule();
 });
 remember.addEventListener('change', async () => {
   if (!remember.checked) await writeValues('state', [['githubCredential',null]]);
@@ -131,6 +156,6 @@ forget.addEventListener('click', async () => {
   connected = false; scheduler.stop(); sessionToken = ''; token.value = ''; remember.checked = false;
   await writeValues('state', [['githubCredential', null], ['githubOptions',{automatic:automatic.checked}]]);
   notifyConnectionChange();
-  attention(''); forget.hidden = true; report('Disconnected on this device.');
+  issue = ''; renderSyncState(); attention(''); forget.hidden = true; report('Disconnected on this device.');
 });
 window.addEventListener('inntake-connection-changed', () => { scheduler.stop(); restoreConnection().catch(() => {}); });

@@ -158,6 +158,12 @@ export function encodeWorkspace(library, files) {
       changed = true;
     }
   }
+  for (const key of ['youtubeRequests', 'youtubePlaylists']) {
+    if (!equal(original.settings[key] || [], library.settings[key] || [])) {
+      settings[key] = library.settings[key] || [];
+      changed = true;
+    }
+  }
   if (changed || !files.has('collections.json')) changes.set('collections.json', encoder.encode(JSON.stringify(settings, null, 2) + '\n'));
   return changes;
 }
