@@ -426,12 +426,92 @@ function paletteFor(name, appearance = appearanceFor(name)) {
   if (appearance.colors) palette.splice(3, 3, ...appearance.colors);
   return palette;
 }
+// Rasterize the inn light on a small, nearest-neighbour canvas. The view's
+// own glow colours supply both the window light and the softer floor patches.
+function paintInnLight(canvas, colors, time) {
+  const ctx = canvas.getContext('2d');
+  const width = canvas.width, height = canvas.height;
+  ctx.clearRect(0, 0, width, height);
+  const drift = Math.sin(time*.19)*.055 + Math.sin(time*.09)*.025;
+  const lean = .31 + Math.sin(time*.15)*.085;
+  for (let i = 0; i < 3; i++) {
+    ctx.fillStyle = colors[i];
+    const x = width*(.05 + i*.25 + drift);
+    const spread = width*(.075 + i*.012);
+    // Overlapping stepped wedges make a bright core with softer pixel edges.
+    for (let band = 0; band < 4; band++) {
+      const half = spread*(1-band*.18);
+      ctx.globalAlpha = .055 + .013*band;
+      ctx.beginPath();
+      ctx.moveTo(x-half,0); ctx.lineTo(x+half,0);
+      ctx.lineTo(x+(lean+.10)*width+half*1.5,height);
+      ctx.lineTo(x+lean*width-half*1.5,height);
+      ctx.fill();
+    }
+    // A thin warm shaft and a wider reflection at the foot of each beam.
+    const foot = x + lean*width;
+    ctx.fillStyle = '#ffe6ac';
+    ctx.globalAlpha = .048;
+    ctx.beginPath();
+    ctx.moveTo(x-spread*.23,0); ctx.lineTo(x+spread*.13,0);
+    ctx.lineTo(foot+spread*.32,height); ctx.lineTo(foot-spread*.22,height); ctx.fill();
+    ctx.fillStyle = colors[i];
+    ctx.globalAlpha = .15;
+    ctx.beginPath();
+    ctx.moveTo(foot-width*.04,height*.85); ctx.lineTo(foot+spread,height*.85);
+    ctx.lineTo(foot+spread*2.9,height); ctx.lineTo(foot-spread*.6,height); ctx.fill();
+    for (let n = 0; n < 11; n++) {
+      const y = (n*.618 + i*.29 + time*(.003 + n%4*.001))%1;
+      const offset = Math.sin(n*9.1 + time*.33 + i)*spread*.8;
+      ctx.globalAlpha = .33 + .22*Math.sin(n+time*.6);
+      ctx.fillStyle = n%3 ? colors[i] : '#ffe8a6';
+      ctx.fillRect(Math.floor(x+y*lean*width+offset),Math.floor(y*height),1,1);
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+const innLightCanvas = $('body > .ambient .inn-rays');
+const motionPreference = matchMedia('(prefers-reduced-motion: reduce)');
+let innLightTimer, innLightKey = '';
+function updateInnLight() {
+  const active = currentStyle === 'inn' && !document.hidden;
+  const root = document.documentElement.style;
+  const colors = ['--glow-a','--glow-b','--glow-c'].map(key => root.getPropertyValue(key));
+  const moving = !document.body.classList.contains('still-background') &&
+    (!motionPreference.matches || document.body.classList.contains('motion-explicit'));
+  const width = Math.max(1,Math.ceil(innerWidth / Math.max(4,innerWidth/360)));
+  const height = Math.max(1,Math.round(innerHeight*width/Math.max(innerWidth,1)));
+  const key = JSON.stringify([active, moving, colors, width, height]);
+  if (key === innLightKey) return;
+  innLightKey = key;
+  clearTimeout(innLightTimer);
+  if (!active) return;
+  innLightCanvas.width = width; innLightCanvas.height = height;
+  function draw() {
+    paintInnLight(innLightCanvas, colors, moving ? performance.now()/1000 : 0);
+    if (moving) innLightTimer = setTimeout(draw,100);
+  }
+  draw();
+}
+window.addEventListener('resize', updateInnLight);
+document.addEventListener('visibilitychange', updateInnLight);
+motionPreference.addEventListener('change', updateInnLight);
+
+function glowSurface(base, color, amount) {
+  return `color-mix(in srgb, ${base} ${100-amount}%, ${color})`;
+}
 function applyAppearance() {
   const name = $('#collection-filter').value;
   const appearance = appearanceFor(name), palette = paletteFor(name, appearance);
   for (const [index, variable] of ['--background', '--card', '--accent', '--glow-a', '--glow-b', '--glow-c'].entries()) document.documentElement.style.setProperty(variable, palette[index]);
+  if (name && (appearance.colors || currentStyle === 'inn')) {
+    const root = document.documentElement.style;
+    root.setProperty('--background', glowSurface(glowSurface(palette[0], palette[3], 22), palette[4], 9));
+    root.setProperty('--card', glowSurface(palette[1], palette[5], 15));
+  }
   document.body.classList.toggle('still-background', !appearance.motion);
   document.body.classList.toggle('motion-explicit', Boolean(appearance.motionOverride));
+  updateInnLight();
 }
 
 function collectionPath(name) {
@@ -929,6 +1009,7 @@ function loadCollectionForm(parent = null) {
   refreshThemePreview(true);
 }
 $('#collection-new').addEventListener('click', () => openCollectionDialog(true));
+let glowEdited = false;
 function refreshThemePreview(resetColors = false) {
   const name = $('#organize-collection').value || $('#new-collection-name').value;
   const theme = $('#collection-theme').value;
@@ -939,15 +1020,21 @@ function refreshThemePreview(resetColors = false) {
   const palette = paletteFor(name, appearance);
   if (resetColors) {
     const colors = theme && saved?.theme === theme && saved.colors ? saved.colors : palette.slice(3);
-    colors.forEach((color, i) => $('#theme-color-' + i).value = color);
+    glowEdited = false;
+    colors.forEach((color, i) => {
+      $('#theme-color-' + i).value = color;
+      $('#glow-hex-' + i).value = color;
+    });
   }
   for (let i = 0; i < 3; i++) {
-    $('#theme-color-' + i).disabled = !theme;
     palette[3 + i] = $('#theme-color-' + i).value;
   }
   $('#collection-motion').disabled = !theme;
-  const preview = $('#theme-preview'); preview.style.background = palette[0];
+  const preview = $('#theme-preview'); preview.style.background = glowSurface(glowSurface(palette[0],palette[3],22),palette[4],9);
   ['--glow-a', '--glow-b', '--glow-c'].forEach((key, i) => preview.style.setProperty(key, palette[i + 3]));
+  if (currentStyle === 'inn') {
+    paintInnLight(preview.querySelector('.inn-rays'), palette.slice(3), 0);
+  }
   const motion = theme ? $('#collection-motion').value !== 'off' : inherited.motion;
   const explicit = theme ? $('#collection-motion').value === 'on' : inherited.motionOverride;
   preview.classList.toggle('motion-explicit', Boolean(explicit));
@@ -955,10 +1042,33 @@ function refreshThemePreview(resetColors = false) {
   $('#motion-note').textContent = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'Reduce Motion is enabled on this device. Choose Animated to allow motion here.' : 'Preview updates as you choose. Save to apply to this collection.';
 }
 $('#collection-theme').addEventListener('change', () => refreshThemePreview(true));
-$('#collection-parent').addEventListener('change', () => refreshThemePreview(true));
+$('#collection-parent').addEventListener('change', () => refreshThemePreview(!glowEdited));
 $('#collection-motion').addEventListener('change', () => refreshThemePreview());
-for (let i = 0; i < 3; i++) $('#theme-color-' + i).addEventListener('input', () => refreshThemePreview());
-$('#new-collection-name').addEventListener('input', () => refreshThemePreview(true));
+function editGlow(index, hex) {
+  const theme = $('#collection-theme');
+  if (!theme.value) {
+    const parent = $('#collection-parent').value;
+    const inherited = appearanceFor(parent);
+    theme.value = parent ? inherited.theme : 'auto';
+    $('#collection-motion').value = !inherited.motion ? 'off' : inherited.motionOverride ? 'on' : 'system';
+  }
+  glowEdited = true;
+  $('#theme-color-' + index).value = hex;
+  refreshThemePreview();
+}
+for (let i = 0; i < 3; i++) {
+  const swatch = $('#theme-color-' + i), hex = $('#glow-hex-' + i);
+  const fromSwatch = () => {
+    hex.value = swatch.value;
+    editGlow(i, swatch.value);
+  };
+  swatch.addEventListener('input', fromSwatch);
+  swatch.addEventListener('change', fromSwatch);
+  hex.addEventListener('input', () => {
+    if (/^#?[0-9a-f]{6}$/i.test(hex.value)) editGlow(i, '#' + hex.value.replace('#',''));
+  });
+}
+$('#new-collection-name').addEventListener('input', () => refreshThemePreview(!glowEdited));
 $('#organize-collection').addEventListener('change', () => loadCollectionForm());
 $('#collection-dialog-close').addEventListener('click', () => { if (!organizing) $('#collection-dialog').close(); });
 $('#collection-dialog').addEventListener('cancel', event => { if (organizing) event.preventDefault(); });
@@ -967,6 +1077,13 @@ $('#collection-save').addEventListener('click', async () => {
   const selected = $('#organize-collection').value;
   const name = selected || $('#new-collection-name').value.trim();
   if (!name) { $('#collection-save-status').textContent = 'Enter a collection name.'; return; }
+  for (const field of document.querySelectorAll('.theme-colors input[type=text]')) {
+    if (!/^#?[0-9a-f]{6}$/i.test(field.value)) {
+      $('#collection-save-status').textContent = 'Enter a six-digit hex colour.';
+      field.focus();
+      return;
+    }
+  }
   organizing = true; $('#collection-save').disabled = true;
   try {
     const appearance = $('#collection-theme').value ? {theme: $('#collection-theme').value, motion: $('#collection-motion').value !== 'off', motionOverride: $('#collection-motion').value === 'on', colors: [0, 1, 2].map(i => $('#theme-color-' + i).value)} : null;

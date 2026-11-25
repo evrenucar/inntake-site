@@ -795,10 +795,24 @@ body.compact-navigation .ambient div { width: 120vw; }
       :root:is([data-library-style="simple"],[data-library-style="inn"]) body.compact-navigation .library-brand { font-size:23px; }
       :root[data-library-style="simple"] .page-heading::after { width:66px; height:35px; }
     }
+    .theme-colors > div { flex:1; min-width:0; }
+    .theme-colors input[type=text] { font:13px/1.3 ui-monospace,monospace; padding:4px 6px; }
+    .theme-colors input[type=text]:invalid { border-color:#d88773; }
+    .inn-rays { display:none; width:100%; height:100%; image-rendering:pixelated; pointer-events:none; }
+    :root[data-library-style="inn"] {
+      & .ambient .inn-rays { display:block; position:absolute; inset:0; }
+      & body > .ambient:has(.inn-rays) { opacity:1; }
+      & body > .ambient div { opacity:.24; }
+      & #library-sidebar,.library-layout main .page-heading {
+        background-color:var(--card);
+        background-image:linear-gradient(100deg,color-mix(in srgb,var(--glow-a) 28%,transparent),color-mix(in srgb,var(--glow-c) 14%,transparent)),var(--wood);
+      }
+      & .card { background-image:linear-gradient(90deg,#ad916944,transparent 15px),linear-gradient(110deg,color-mix(in srgb,#f3e4bf 93%,var(--glow-b)),color-mix(in srgb,#dac59a 90%,var(--glow-a))); }
+    }
   </style>
 </head>
 <body>
-  <div class="ambient" aria-hidden="true"><div></div><div></div><div></div></div>
+  <div class="ambient" aria-hidden="true"><div></div><div></div><div></div><canvas class="inn-rays"></canvas></div>
   <div class="library-layout">
   <aside id="library-sidebar" aria-label="Library navigation">
     <div id="navigation-divider" role="separator" aria-label="Resize collections sidebar" aria-orientation="vertical" tabindex="0"></div>
@@ -931,8 +945,8 @@ body.compact-navigation .ambient div { width: 120vw; }
     <details class="icon-editor"><summary><span id="icon-preview" aria-label="Icon preview"></span>Collection icon</summary><label class="field icon-search-field">Find an icon<input id="icon-search" type="search" placeholder="Search icons: robot, camera, code…" autocomplete="off"></label><p id="icon-results" class="hint" role="status">Loading icon library…</p><div id="icon-options" aria-label="Choose an icon"></div><button id="icon-more" class="secondary-action" hidden>Show more icons</button><p class="hint icon-credit">Icons by <a href="https://lucide.dev/guide/" target="_blank" rel="noopener noreferrer">Lucide</a> · available offline</p><label class="field">Or use an emoji or symbol<input id="icon-custom" maxlength="32" placeholder="e.g. 🌱"></label><button id="icon-reset" class="secondary-action">Use suggested icon</button></details>
     <label class="field">Colour theme<select id="collection-theme"><option value="">Use parent / library theme</option><option value="auto">Automatic colour</option><option value="moss">Moss</option><option value="ocean">Ocean</option><option value="ember">Ember</option><option value="violet">Violet</option><option value="graphite">Graphite</option></select></label>
     <label class="field">Background motion<select id="collection-motion"><option value="on">Animated</option><option value="system">System preference</option><option value="off">Still</option></select></label>
-    <div class="theme-colors"><label>Glow 1<input id="theme-color-0" type="color" value="#345540"></label><label>Glow 2<input id="theme-color-1" type="color" value="#656038"></label><label>Glow 3<input id="theme-color-2" type="color" value="#33474c"></label></div>
-    <div id="theme-preview" aria-label="Background preview"><div class="ambient"><div></div><div></div><div></div></div></div><p id="motion-note" class="hint"></p>
+    <div class="theme-colors"><div><label>Glow 1<input id="theme-color-0" type="color" value="#345540"></label><input id="glow-hex-0" aria-label="Glow 1 hex color" type="text" maxlength="7" spellcheck="false" autocapitalize="off" pattern="#?[0-9a-fA-F]{6}"></div><div><label>Glow 2<input id="theme-color-1" type="color" value="#656038"></label><input id="glow-hex-1" aria-label="Glow 2 hex color" type="text" maxlength="7" spellcheck="false" autocapitalize="off" pattern="#?[0-9a-fA-F]{6}"></div><div><label>Glow 3<input id="theme-color-2" type="color" value="#33474c"></label><input id="glow-hex-2" aria-label="Glow 3 hex color" type="text" maxlength="7" spellcheck="false" autocapitalize="off" pattern="#?[0-9a-fA-F]{6}"></div></div>
+    <div id="theme-preview" aria-label="Background preview"><div class="ambient"><div></div><div></div><div></div><canvas class="inn-rays" width="140" height="32" aria-hidden="true"></canvas></div></div><p id="motion-note" class="hint"></p>
     <p class="hint">Subcollections inherit their parent’s background unless you choose one. System preference follows Reduce Motion. Animated enables motion in this library.</p>
     <div class="dialog-footer"><button id="collection-save">Save collection</button><span id="collection-save-status" role="status"></span></div>
   </dialog>
