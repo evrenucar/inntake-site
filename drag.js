@@ -115,7 +115,7 @@ window.createShelfDrag = function createShelfDrag({root, getItem, drop, nudge, r
     body.y -= travel?.y || 0;
     body.targetX = body.targetY = 0;
     body.dragging = false;
-    if (!reducedMotion.matches) show();
+    if (fullMotionPreview || !reducedMotion.matches) show();
     schedule();
   }
 
