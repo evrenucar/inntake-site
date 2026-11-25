@@ -132,8 +132,8 @@
     }
     measureRoom();
     const start = performance.now();
-    const durationMs = 1350;
-    const levels = 24;
+    const durationMs = 2000;
+    const levels = 32;
     let previous = -1;
     const fade = cover.animate([
       {filter:'brightness(0)', opacity:1},
@@ -141,7 +141,8 @@
       {filter:'brightness(1)', opacity:0}
     ], {duration:durationMs, fill:'both', easing:'ease-in-out'});
     function frame(time) {
-      const progress = Math.max(0, (time-start)/(durationMs*.9));
+      const t = Math.min(1, Math.max(0, (time-start)/(durationMs*.94)));
+      const progress = t*t*(3-2*t);
       const step = Math.min(levels-1, Math.floor(progress*levels));
       if (step !== previous) {
         // Equal proportional changes keep the last few steps small.

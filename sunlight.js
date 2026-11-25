@@ -20,8 +20,8 @@ window.createInnSunlight = function createInnSunlight(canvas) {
   const dust = Array.from({length:170},(_,i) => ({
     x: fraction(i*.61803399+.07),
     y: fraction(i*.75487767+.21),
-    fall: .0019+.0041*fraction((i+1)*.41421356),
-    drift: .00045+.0024*fraction((i+1)*.73205081),
+    fall: .0009+.0075*Math.random()**1.4,
+    drift: .00025+.0038*Math.random()**1.3,
     sway: .075+.13*fraction((i+1)*.23606798),
     bob: .085+.09*fraction((i+1)*.64575131),
     phase:i*1.37

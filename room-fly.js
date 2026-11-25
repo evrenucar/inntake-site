@@ -5,7 +5,8 @@ window.createInnFly = function createInnFly() {
   const explicitMotion = window.inntakeFullMotion;
   const between = (min, max) => min + Math.random() * (max - min);
   const clamp = value => Math.max(0, Math.min(1, value));
-  const nextVisit = () => between(10000, 30000);
+  const nextVisit = () => between(6500, 19000);
+  const bodyTones = ['#302a22','#60543e','#96815a','#c2aa78','#e5cc96','#ffebbe'];
   const dark = () => 0;
   let remaining = nextVisit();
   let previous = null;
@@ -121,11 +122,11 @@ window.createInnFly = function createInnFly() {
     ctx.save();
     ctx.setTransform(1,0,0,1,0,0);
     ctx.globalAlpha = emerge*(.54+.44*light);
-    ctx.fillStyle = '#302a22';
-    ctx.fillRect(x,y,2,1);
+    ctx.fillStyle = bodyTones[Math.round(Math.sqrt(light)*(bodyTones.length-1))];
+    ctx.fillRect(x,y,3,2);
     ctx.globalAlpha = emerge*(.28+.68*light);
-    ctx.fillStyle = light > .5 ? '#e7d3a2' : '#ab9e7d';
-    ctx.fillRect(x+(facing<0?1:0),y+(wingUp?-1:perched?0:1),1,1);
+    ctx.fillStyle = light > .25 ? '#ffedbe' : '#ab9e7d';
+    ctx.fillRect(x+(facing<0?1:0),y+(wingUp?-1:perched?0:2),2,1);
     ctx.restore();
   }
 
