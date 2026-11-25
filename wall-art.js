@@ -271,6 +271,7 @@
 
   const malletImage = new Image();
   malletImage.src = './assets/mallet.png';
+  window.innMalletReady = malletImage.decode().catch(() => {});
   const malletColors = [
     [58,37,25], [82,51,32], [101,61,34], [103,74,56], [123,72,37], [131,87,64],
     [149,85,40], [165,96,59], [182,108,64], [160,111,85], [177,122,90], [196,120,71],

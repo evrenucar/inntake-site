@@ -106,9 +106,12 @@
     }
     const finalCell = Math.max(5,Math.min(geometry.width,geometry.height)/92);
     const cell = 2.2 + (finalCell-2.2)*amount;
+    paintRoomSample(veil, cell);
+  }
+  function paintRoomSample(target, cell) {
     const w = Math.ceil(geometry.width/cell), h = Math.ceil(geometry.height/cell);
-    if (veil.width !== w || veil.height !== h) { veil.width=w; veil.height=h; }
-    const ctx=veil.getContext('2d');
+    if (target.width !== w || target.height !== h) { target.width=w; target.height=h; }
+    const ctx=target.getContext('2d');
     ctx.setTransform(w/geometry.width,0,0,h/geometry.height,0,0);
     ctx.imageSmoothingEnabled=false;
     ctx.globalCompositeOperation='source-over';
@@ -121,6 +124,32 @@
       ctx.restore();
     }
   }
+  window.revealInnRoom = () => {
+    const cover = document.querySelector('.room-intro');
+    if (!allowMotion() || getComputedStyle(cover).visibility === 'hidden') {
+      cover.remove();
+      return;
+    }
+    measureRoom();
+    const start = performance.now();
+    const cells = [32, 20, 12, 8, 5, 3];
+    let previous = -1;
+    const fade = cover.animate([
+      {filter:'brightness(0)', opacity:1},
+      {filter:'brightness(1)', opacity:1, offset:.66},
+      {filter:'brightness(1)', opacity:0}
+    ], {duration:800, fill:'both', easing:'ease-in-out'});
+    function frame(time) {
+      const step = Math.min(cells.length-1, Math.floor(Math.max(0,time-start)/95));
+      if (step !== previous) {
+        paintRoomSample(cover, cells[step]);
+        previous = step;
+      }
+      if (fade.playState === 'finished' || showing) cover.remove();
+      else requestAnimationFrame(frame);
+    }
+    frame(start);
+  };
   function changeVeil(to,duration) {
     if (allowMotion()) transition = {from:amount,to,duration,start:performance.now()};
     else { transition=null; amount=to; }

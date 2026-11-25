@@ -415,3 +415,13 @@ dialog :is(button,summary):focus-visible { outline: 2px solid currentColor; outl
   pointer-events: none;
 }
 .colophon small { font: inherit; }
+
+.room-intro { display: none; }
+@media (scripting: enabled) {
+  .room-intro {
+    display: block; position: fixed; inset: 0; width: 100%; height: 100%;
+    pointer-events: none; z-index: 20; background: #000;
+    animation: intro-fallback .3s 10s forwards;
+  }
+}
+@keyframes intro-fallback { to { opacity: 0; visibility: hidden; } }
