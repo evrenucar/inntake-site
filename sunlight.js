@@ -14,11 +14,17 @@ window.createInnSunlight = function createInnSunlight(canvas) {
   let lean = .46;
   let drift = 0;
   let furniture;
-  const dust = Array.from({length: 170}, (_, i) => ({
-    x: (i * .61803399 + .07) % 1,
-    y: (i * .75487767 + .21) % 1,
-    speed: .0018 + (i % 7) * .00062,
-    phase: i * 1.37
+  // Stable, independent velocities keep the motes in the same draft without
+  // making them fall in lockstep. Their lateral wander has a slower rhythm.
+  const fraction = n => n-Math.floor(n);
+  const dust = Array.from({length:170},(_,i) => ({
+    x: fraction(i*.61803399+.07),
+    y: fraction(i*.75487767+.21),
+    fall: .0019+.0041*fraction((i+1)*.41421356),
+    drift: .00045+.0024*fraction((i+1)*.73205081),
+    sway: .075+.13*fraction((i+1)*.23606798),
+    bob: .085+.09*fraction((i+1)*.64575131),
+    phase:i*1.37
   }));
 
   function projection(beam, y) {
@@ -92,8 +98,8 @@ window.createInnSunlight = function createInnSunlight(canvas) {
 
     for (let i = 0; i < dust.length; i++) {
       const mote = dust[i];
-      const x = (mote.x + time * mote.speed * .42 + Math.sin(time * .19 + mote.phase) * .012 + 1) % 1;
-      const y = (mote.y + time * mote.speed + Math.sin(time * .15 + mote.phase) * .006 + 1) % 1;
+      const x = (mote.x + time * mote.drift + Math.sin(time * mote.sway + mote.phase) * .012 + 1) % 1;
+      const y = (mote.y + time * mote.fall + Math.sin(time * mote.bob + mote.phase) * .006 + 1) % 1;
       const glow = intensity(x, y) * (.68 + .32 * Math.sin(time * .75 + mote.phase));
       if (glow < .11) continue;
       const size = i % 9 === 0 && glow > .4 ? 2 : 1;

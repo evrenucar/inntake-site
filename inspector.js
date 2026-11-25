@@ -330,7 +330,7 @@
       event.preventDefault();
       const source = anchor.querySelector('canvas');
       const mallet = id === 'mallet';
-      open({id, floor:true, name:mallet?'Joiner’s mallet':'GitHub map', source, crop:[0,0,source.width,source.height], origin:source,
+      open({id, floor:true, name:mallet?'Joiner’s mallet':'Find Source', source, crop:[0,0,source.width,source.height], origin:source,
         intro:mallet?'A battered wooden head on a long, hand-worn handle.':'A route marked in ink across the folds.',
         first:mallet?'Inspect the head':'Unfold map', nextAction:'', href:mallet ? anchor.href : anchor.dataset.repository,
         linkText:mallet?'Start your own Library':'Open GitHub repo',

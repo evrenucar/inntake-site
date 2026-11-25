@@ -139,10 +139,21 @@ async function mount() {
   const hc = held.getContext('2d');
   const wood = material(back,[0,0,back.width,back.height],540,360);
   const colors = {base: tallerCabinet(wood.base), light: tallerCabinet(wood.light)};
+  // The first opaque pixel in a column is a real place to land, even on a
+  // curved flask or an irregular stack of books with transparent padding.
+  function upperEdge(canvas,fraction) {
+    const x=Math.min(canvas.width-1,Math.floor(canvas.width*fraction));
+    const column=canvas.getContext('2d').getImageData(x,0,1,canvas.height).data;
+    for (let y=0;y<canvas.height;y++) {
+      if (column[4*y+3]>190) return {x:(x+.5)/canvas.width,y:y/canvas.height};
+    }
+    return null;
+  }
   const shapes = {};
   for (const [id,{atlas:crop,source}] of Object.entries(spec.objects)) {
     const size = source.slice(2).map(v=>Math.max(1,Math.round(v*540/W)));
-    shapes[id] = {...material(atlas,crop,...size),source};
+    const sprite=material(atlas,crop,...size);
+    shapes[id] = {...sprite,source,perch:upperEdge(sprite.base,.48)};
   }
   const buttons = {}, spots = {};
   const order = loadOrder();
@@ -170,6 +181,32 @@ async function mount() {
   } catch {}
   const storageDialog = document.querySelector('.storage-dialog');
   const fly = window.createInnFly();
+  const flyRoom = {perches:[],intensity:sunlight.intensity};
+  function updatePerches() {
+    if (!box || !roomBox.width || !roomBox.height) return;
+    const perches=[];
+    function add(id,x,y) {
+      perches.push({id,x:(x-roomBox.left)/roomBox.width,y:(y-roomBox.top)/roomBox.height});
+    }
+    for (const [id,shape] of Object.entries(shapes)) {
+      const edge=shape.perch;
+      if (!edge || stored[id] || (pose?.dragging && pose.id===id)) continue;
+      const [x,y,w,h]=spots[id];
+      add('shelf-'+id,box.left+(x+w*edge.x)*box.width/W,box.top+(y+h*edge.y)*box.height/H);
+    }
+    for (const [selector,column] of [['.wall-painting',.68],['.grimoire',.56],['.mallet',.22],['.repo-map',.62]]) {
+      const art=room.querySelector(selector), edge=upperEdge(art,column);
+      if(!edge) continue;
+      const rect=art.getBoundingClientRect();
+      const css=getComputedStyle(art).transform;
+      const matrix=css==='none'?null:new DOMMatrixReadOnly(css);
+      const rotation=matrix?Math.atan2(matrix.b,matrix.a):0;
+      const dx=(edge.x-.5)*art.offsetWidth, dy=(edge.y-.5)*art.offsetHeight;
+      add(selector,rect.left+rect.width/2+dx*Math.cos(rotation)-dy*Math.sin(rotation),
+        rect.top+rect.height/2+dx*Math.sin(rotation)+dy*Math.cos(rotation));
+    }
+    flyRoom.perches=perches;
+  }
   const hint = cabinet.querySelector('.shelf-tip');
   const shiftHint = hint.textContent;
   let hintSeen = false;
@@ -287,6 +324,7 @@ async function mount() {
       Object.assign(buttons[id].style,{left:left/W*100+'%',top:top/H*100+'%',width:hitWidth/W*100+'%',height:hitHeight/H*100+'%'});
       if (rail) buttons[id].style.clipPath = 'polygon(0 0,6% 0,6% 40%,100% 40%,100% 70%,6% 70%,6% 100%,0 100%)';
     }
+    updatePerches();
   }
   function annotate() {
     const id = active();
@@ -383,7 +421,7 @@ async function mount() {
       drawPiece(hc,id,[0,0,r[2]*scale,r[3]*scale],1);
     }
     hc.setTransform(1,0,0,1,0,0);
-    if (!reduceMotion() && !document.hidden) fly.draw(hc,time);
+    if (!reduceMotion() && !document.hidden) fly.draw(hc,time,flyRoom);
     window.refreshInnInspection?.(time);
   }
   function repaint() {
@@ -415,7 +453,7 @@ async function mount() {
     wall.width=Math.ceil(roomBox.width/cell);wall.height=Math.ceil(roomBox.height/cell);
     hc.imageSmoothingEnabled=ctx.imageSmoothingEnabled=false;
     depth = window.createCabinetDepth({width:shelf.width, height:shelf.height, cabinet:box, room:roomBox});
-    paintRoom(); sunlight.draw(seconds); annotate(); renderShelf(performance.now());
+    paintRoom(); updatePerches(); sunlight.draw(seconds); annotate(); renderShelf(performance.now());
   }
 
   function changeSelection() { annotate(); repaint(); }
@@ -434,7 +472,7 @@ async function mount() {
   }
   const finds=window.innDrawerFinds();
   const floorItems=[
-    ['guide-opener','Guidebook'],['library-entry','Library mallet'],['repo-entry','GitHub map']
+    ['guide-opener','Guidebook'],['library-entry','Library mallet'],['repo-entry','Find Source']
   ];
   function localInventory() {
     try {
@@ -639,6 +677,7 @@ async function mount() {
   });
   refreshStorage();
   layout(); resize();
+  if (document.readyState!=='complete') window.addEventListener('load',updatePerches,{once:true});
   drag=window.createShelfDrag({root:controls,fullMotionPreview,getItem:b=>shapes[b.dataset.id] && !stored[b.dataset.id] ? b.dataset.id : null,
     drop:(id,x,y,keyboardTarget)=>{
       if (keyboardTarget) return swap(id,keyboardTarget);
@@ -648,6 +687,7 @@ async function mount() {
     }, nudge, render:value=>{
       const wasHeld=pose?.dragging;
       pose=value;
+      if (Boolean(wasHeld)!==Boolean(value?.dragging)) updatePerches();
       if (!wasHeld && value?.dragging) { hintSeen=true; hideHint(); }
       if (wasHeld && !value?.dragging) { target=null; hover=null; hideHint(); }
       cabinet.classList.toggle('is-dragging',Boolean(value?.dragging));
