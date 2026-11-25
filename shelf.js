@@ -455,7 +455,7 @@ async function mount() {
     const cell = Math.max(2.2, roomBox.width/540, roomBox.height/380);
     wall.width=Math.ceil(roomBox.width/cell);wall.height=Math.ceil(roomBox.height/cell);
     hc.imageSmoothingEnabled=ctx.imageSmoothingEnabled=false;
-    depth = window.createCabinetDepth({width:shelf.width, height:shelf.height, cabinet:box, room:roomBox});
+    depth = window.createCabinetDepth({width:shelf.width, height:shelf.height});
     paintRoom(); updatePerches(); sunlight.draw(seconds); annotate(); renderShelf(performance.now());
   }
 

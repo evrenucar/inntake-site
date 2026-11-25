@@ -1,11 +1,11 @@
 'use strict';
 
-window.createCabinetDepth = function createCabinetDepth({width, height, cabinet, room}) {
-  // The painted cabinet uses a 1536 × 1088 front elevation. Project its depth
-  // towards the same eye line as the floor. All raster work happens on resize.
+window.createCabinetDepth = function createCabinetDepth({width, height}) {
+  // Keep the 390 × 844 portrait view's eye point in the artwork's coordinates.
+  // The room can reflow around the cabinet without rotating its side faces.
   const W = 1536, H = 1088;
-  const eyeX = (room.left + .34*room.width - cabinet.left) * W/cabinet.width;
-  const eyeY = (cabinet.bottom - .11*cabinet.height - .27*room.height - cabinet.top) * H/cabinet.height;
+  const eyeX = 512.004273;
+  const eyeY = 33.438709;
   const leftSide = eyeX < W/2;
   const direction = leftSide ? -1 : 1;
   const nearPost = leftSide ? 89 : 1446;
