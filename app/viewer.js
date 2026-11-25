@@ -2370,7 +2370,9 @@ if (macSync) {
     try {
       const response = await libraryFetch('/api/workspace-sync');
       if (!response.ok) return;
-      const {remote} = await response.json();
+      const {remote, connected, status, conflict} = await response.json();
+      const states = {conflict, waiting: 'Changes saved locally. Sync will retry.', syncing: 'Syncing…'};
+      $('#mac-sync-status').textContent = connected ? (states[status] || 'Automatic sync is on.') : '';
       macSync.hidden = !remote;
       if (remote) $('#mac-sync-repo').textContent = new URL(remote).pathname.slice(1).replace(/\.git$/, '') + ' · inntake-library';
     } catch { macSync.hidden = true; }

@@ -1,5 +1,5 @@
 import {decodeWorkspace, encodeWorkspace} from './github-codec.js';
-import {exclusive, libraryView, mounted, readValue, writeValues} from './browser-store.js';
+import {exclusive, libraryView, mounted, namespace, readValue, writeValues} from './browser-store.js';
 import {load, normalizeLibrary, save} from './viewer-storage.js';
 
 export const repoPattern = /^[a-z\d][a-z\d-]{0,38}\/[a-z\d_.-]{1,100}$/i;
@@ -75,11 +75,17 @@ export function github(repo, token, network = fetch) {
   if (!token.trim()) throw new Error('Enter a GitHub token for this repository.');
   const endpoint = 'https://api.github.com/repos/' + repo;
   const request = async (path, method = 'GET', body) => {
-    const response = await network(endpoint + path, {method, cache:'no-store', credentials:'omit', redirect:'error', referrerPolicy:'no-referrer',
+    const response = await network(endpoint + path, {method, signal:AbortSignal.timeout(20000), cache:'no-store', credentials:'omit', redirect:'error', referrerPolicy:'no-referrer',
       headers:{Authorization:'Bearer ' + token.trim(), Accept:'application/vnd.github+json', 'X-GitHub-Api-Version':'2022-11-28',
         ...(body ? {'Content-Type':'application/json'} : {})}, ...(body ? {body:JSON.stringify(body)} : {})});
     if (!response.ok) {
-      if (response.status === 401 || response.status === 403) throw new Error('GitHub denied this request. Check token permissions, expiry and API limits.');
+      if (response.status === 401 || response.status === 403 || response.status === 429) {
+        const limited = response.status === 429 || response.headers.has('retry-after') || response.headers.get('x-ratelimit-remaining') === '0';
+        const error = new Error(limited ? 'GitHub requested a pause. Sync will retry.' : 'GitHub denied access. Check your connection in Settings.');
+        error.authRequired = !limited;
+        error.retryAfter = Math.max(Number(response.headers.get('retry-after')) * 1000, Number(response.headers.get('x-ratelimit-reset')) * 1000 - Date.now(), 0);
+        throw error;
+      }
       if (response.status === 404) throw new Error('GitHub could not find this private repository or its data branch. Check the name and token access.');
       if ([409,422].includes(response.status)) throw new Error('GitHub could not update this branch. Sync again to pick up changes, or check branch protection.');
       throw new Error('GitHub request failed (' + response.status + '). Your local edits are saved.');
@@ -127,8 +133,8 @@ function toBase64(bytes) {
   return btoa(str);
 }
 
-export async function readWorkspace(api, branch, readBlob, cacheBlob, report) {
-  const ref = await api.request('/git/ref/heads/' + encodedBranch(branch));
+export async function readWorkspace(api, branch, readBlob, cacheBlob, report, ref) {
+  ref ??= await api.request('/git/ref/heads/' + encodedBranch(branch));
   const head = sha(ref.object?.sha);
   const commit = await api.request('/git/commits/' + head);
   const tree = sha(commit.tree?.sha);
@@ -180,18 +186,25 @@ export async function publish(api, branch, remote, changes, cacheBlob) {
   return commit.sha;
 }
 
-export async function syncWorkspace({repo, branch, token, report, resolutions}) {
+export async function syncWorkspace({repo, branch, token, report, resolutions, automatic = false}) {
   repo = repo.trim().toLowerCase();
   if (mounted !== null && repo !== mounted.toLowerCase()) throw new Error('This shared library belongs to a different repository.');
   const api = github(repo, token);
   const binding = repo + '#' + branch;
-  return exclusive(async () => {
+  return navigator.locks.request('inntake-github:' + namespace, async () => {
     const prior = await readValue('state', 'sync');
     if (prior && prior.binding !== binding) throw new Error('This library is connected to ' + prior.binding + '. Open another library separately.');
+    const dirty = await readValue('state', 'syncDirty');
+    if (automatic && prior && dirty === false && Date.now() - (prior.checked || 0) < 12000) return {unchanged:true};
+    const ref = await api.request('/git/ref/heads/' + encodedBranch(branch));
+    if (prior && dirty === false && prior.head === sha(ref.object?.sha)) {
+      await writeValues('state', [['sync', {...prior, checked:Date.now()}]]);
+      return {unchanged:true};
+    }
     await api.verify();
     report('Reading private library…');
     const cacheBlob = (id, bytes) => writeValues('blobs', [[id, bytes]]);
-    const remote = await readWorkspace(api, branch, id => readValue('blobs', id), cacheBlob, report);
+    const remote = await readWorkspace(api, branch, id => readValue('blobs', id), cacheBlob, report, ref);
     if (prior && prior.head !== remote.head) {
       const comparison = await api.request('/compare/' + sha(prior.head) + '...' + remote.head + '?per_page=1');
       if (!['ahead', 'identical'].includes(comparison.status) || comparison.merge_base_commit?.sha !== prior.head) {
@@ -218,10 +231,23 @@ export async function syncWorkspace({repo, branch, token, report, resolutions}) 
     }
     const hashes = await fingerprints(snapshot(canonical));
     const timestamp = new Date().toISOString();
-    const state = {binding, repo, branch, hashes, head, timestamp};
+    const state = {binding, repo, branch, hashes, head, timestamp, checked:Date.now()};
     const paths = Object.fromEntries([...remote.paths].filter(([path]) => sourcePath(path)));
-    save(view, canonical, true);
-    await view.flush([['sync', state], ['assets', {head, paths}]]);
-    return {changed:changes.size, items:canonical.items.length, timestamp};
+    // Network work leaves captures free to save. Reconcile any edits made while
+    // the request was in flight before committing the new baseline.
+    return exclusive(async () => {
+      await view.refresh();
+      const latest = load(view);
+      let data = canonical, pending = false;
+      if (latest.revision !== local.revision) {
+        const rebase = await mergeLibraries(latest, canonical, await fingerprints(snapshot(local)));
+        if (rebase.conflicts) return {retry:true};
+        data = rebase.library;
+        pending = stringify(rebase.hashes) !== stringify(hashes);
+      }
+      save(view, data, true);
+      await view.flush([['sync', state], ['syncDirty', pending], ['assets', {head, paths}]], true);
+      return {changed:changes.size, items:data.items.length, timestamp, pending};
+    });
   });
 }

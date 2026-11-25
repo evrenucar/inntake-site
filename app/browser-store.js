@@ -4,7 +4,15 @@ export const namespace = mounted === null ? 'personal' : 'mount:' + mounted.toLo
 const legacyKey = 'inntake-local-library-v1';
 let opening;
 const changes = typeof window !== 'undefined' && 'BroadcastChannel' in window ? new BroadcastChannel('inntake:' + namespace) : null;
-if (changes) changes.onmessage = () => window.dispatchEvent(new Event('inntake-metadata-saved'));
+if (changes) changes.onmessage = event => {
+  window.dispatchEvent(new Event('inntake-metadata-saved'));
+  if (event.data === 'edit') window.dispatchEvent(new Event('inntake-local-edit'));
+  if (event.data === 'options') window.dispatchEvent(new Event('inntake-sync-options'));
+  if (event.data === 'connection') window.dispatchEvent(new Event('inntake-connection-changed'));
+};
+
+export function notifyConnectionChange() { changes?.postMessage('connection'); }
+export function notifySyncOptions() { changes?.postMessage('options'); }
 
 function db() {
   if (!opening) opening = new Promise((resolve, reject) => {
@@ -48,9 +56,13 @@ export async function libraryView() {
     },
     getItem() { return this.raw; },
     setItem(key, value) { this.raw = value; this.changed = true; },
-    async flush(more = []) {
+    async flush(more = [], syncWrite = false) {
+      if (this.changed && !syncWrite) more = [...more, ['syncDirty', true]];
       if (this.changed || more.length) await writeValues('state', [...more, ['library', this.raw]]);
-      if (this.changed) changes?.postMessage(true);
+      if (this.changed) {
+        changes?.postMessage(syncWrite ? 'sync' : 'edit');
+        if (!syncWrite) window.dispatchEvent(new Event('inntake-local-edit'));
+      }
       this.changed = false;
     }
   };
