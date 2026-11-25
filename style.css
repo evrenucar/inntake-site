@@ -403,3 +403,14 @@ dialog :is(button,summary):focus-visible { outline: 2px solid currentColor; outl
   color: #ffedc6;
   text-shadow: 1px 2px #3c271b, 0 0 .38em #ffc470, 0 0 .8em #e79554;
 }
+
+.colophon {
+  position: fixed;
+  right: max(.75rem, env(safe-area-inset-right));
+  bottom: max(.2rem, env(safe-area-inset-bottom));
+  color: #a8a8a8;
+  background: transparent;
+  font: .8rem/1 'Jersey 15', monospace;
+  pointer-events: none;
+}
+.colophon small { font: inherit; }
