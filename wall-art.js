@@ -571,15 +571,16 @@
       const ctx=canvas.getContext('2d');
       if(!ctx) return;
       book.classList.add('illustrated');
-      const bounds=book.getBoundingClientRect(), leaves=spread.getBoundingClientRect();
       const compact=matchMedia('(max-width: 600px)').matches;
       const cssHeight=Math.max(book.clientHeight,nav.offsetTop+nav.offsetHeight+parseFloat(getComputedStyle(book).paddingBottom));
-      const cell=Math.max(1.75,bounds.width/390);
-      const w=Math.round(bounds.width/cell), h=Math.round(cssHeight/cell);
-      const l=Math.round((leaves.left-bounds.left+book.scrollLeft)/cell);
-      const r=l+Math.round(leaves.width/cell);
-      const t=Math.round((leaves.top-bounds.top+book.scrollTop)/cell);
-      const b=t+Math.round(leaves.height/cell)-5;
+      // The pickup animates the spread with a temporary transform. Layout offsets
+      // describe its settled position from the first frame, even while scrolling.
+      const cell=Math.max(1.75,book.clientWidth/390);
+      const w=Math.round(book.clientWidth/cell), h=Math.round(cssHeight/cell);
+      const l=Math.round(spread.offsetLeft/cell);
+      const r=l+Math.round(spread.offsetWidth/cell);
+      const t=Math.round(spread.offsetTop/cell);
+      const b=t+Math.round(spread.offsetHeight/cell)-5;
       const fold=compact ? Math.round(l+Math.min(10,(r-l)*.042)) : Math.round((l+r)/2);
       const shape=[w,h,l,r,t,b,compact].join('/');
       if(shape===lastShape) return;

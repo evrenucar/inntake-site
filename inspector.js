@@ -211,7 +211,7 @@
   });
   room.querySelector('.guide-opener').addEventListener('click',event=>{
     turnBook(0);
-    present(guide,event.currentTarget,guide.querySelector('.book-spread'));
+    present(guide,event.currentTarget,guide);
   });
 
   function drawCrop(source, crop) {
