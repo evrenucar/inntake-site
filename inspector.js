@@ -17,7 +17,7 @@
   const prev = guide.querySelector('.book-prev');
   const next = guide.querySelector('.book-next');
   const reduced = matchMedia('(prefers-reduced-motion: reduce)');
-  const fullMotion = new URLSearchParams(location.search).get('motion') === 'on';
+  const fullMotion = window.inntakeFullMotion;
   const allowMotion = () => fullMotion || !reduced.matches;
   document.documentElement.classList.toggle('full-motion',fullMotion);
   const duration = phase => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--inspect-'+phase));

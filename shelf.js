@@ -5,7 +5,7 @@ const cabinet = room.querySelector('.cabinet');
 const controls = cabinet.querySelector('.shelf-controls');
 const label = cabinet.querySelector('.tag');
 const reduced = matchMedia('(prefers-reduced-motion: reduce)');
-const fullMotionPreview = new URLSearchParams(location.search).get('motion') === 'on';
+const fullMotionPreview = window.inntakeFullMotion;
 const reduceMotion = () => reduced.matches && !fullMotionPreview;
 const names = {
   field: ['Field notes', 'shelf'], guides: ['Field guides', 'book'], potion: ['Take with you', 'vial'],

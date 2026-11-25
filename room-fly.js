@@ -2,7 +2,7 @@
 
 window.createInnFly = function createInnFly() {
   const motion = window.matchMedia('(prefers-reduced-motion: reduce)');
-  const explicitMotion = new URLSearchParams(window.location.search).get('motion') === 'on';
+  const explicitMotion = window.inntakeFullMotion;
   const between = (min, max) => min + Math.random() * (max - min);
   const clamp = value => Math.max(0, Math.min(1, value));
   const nextVisit = () => between(10000, 30000);
