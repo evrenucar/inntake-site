@@ -447,7 +447,10 @@ async function mount() {
   function resize() {
     box=cabinet.getBoundingClientRect(); roomBox=room.getBoundingClientRect();
     const density=Math.max(1.65,box.width/540,roomBox.width/820);
-    shelf.width=Math.max(1,Math.round(box.width/density));shelf.height=Math.max(1,Math.round(box.height/density));
+    // Use square pixels at the cabinet artwork's 24:17 ratio, even on ultrawide screens.
+    const units = Math.max(1, Math.round(Math.min(540, box.width / 1.65) / 24));
+    shelf.width = 24 * units;
+    shelf.height = 17 * units;
     held.width=Math.ceil(roomBox.width/density); held.height=Math.ceil(roomBox.height/density);
     const cell = Math.max(2.2, roomBox.width/540, roomBox.height/380);
     wall.width=Math.ceil(roomBox.width/cell);wall.height=Math.ceil(roomBox.height/cell);
