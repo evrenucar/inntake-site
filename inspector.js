@@ -132,17 +132,21 @@
     }
     measureRoom();
     const start = performance.now();
-    const cells = [32, 20, 12, 8, 5, 3];
+    const durationMs = 1350;
+    const levels = 24;
     let previous = -1;
     const fade = cover.animate([
       {filter:'brightness(0)', opacity:1},
-      {filter:'brightness(1)', opacity:1, offset:.66},
+      {filter:'brightness(1)', opacity:1, offset:.53},
       {filter:'brightness(1)', opacity:0}
-    ], {duration:800, fill:'both', easing:'ease-in-out'});
+    ], {duration:durationMs, fill:'both', easing:'ease-in-out'});
     function frame(time) {
-      const step = Math.min(cells.length-1, Math.floor(Math.max(0,time-start)/95));
+      const progress = Math.max(0, (time-start)/(durationMs*.9));
+      const step = Math.min(levels-1, Math.floor(progress*levels));
       if (step !== previous) {
-        paintRoomSample(cover, cells[step]);
+        // Equal proportional changes keep the last few steps small.
+        const cell = 32 * (2.6/32) ** (step/(levels-1));
+        paintRoomSample(cover, cell);
         previous = step;
       }
       if (fade.playState === 'finished' || showing) cover.remove();
