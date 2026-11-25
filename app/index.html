@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#241a16">
+  <meta name="description" content="Save links and notes in a browser-local Inntake library.">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <link rel="icon" href="./icon-192.png">
+  <link rel="apple-touch-icon" href="./icon-192.png">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="stylesheet" href="./app.css">
+  <script type="module" src="./app.js"></script>
+  <title>Inntake Library</title>
+</head>
+<body>
+  <header class="masthead"><a class="brand" href="../">Inntake</a><a href="../">Back to the inn</a></header>
+  <main>
+    <section class="intro" aria-labelledby="library-title">
+      <div>
+        <h1 id="library-title">Your library</h1>
+        <p class="hint">Your links and notes stay in this browser.</p>
+      </div>
+      <div class="actions"><button id="paste" class="primary">Paste link</button><button id="add">Add link</button></div>
+    </section>
+    <p id="status" role="status"></p>
+    <div class="workspace">
+      <aside class="collections" aria-labelledby="collections-title">
+        <h2 id="collections-title">Collections</h2>
+        <nav id="collections" aria-label="Filter by collection"></nav>
+        <form id="new-collection" class="new-collection">
+          <label class="sr-only" for="collection-name">New collection name</label>
+          <input id="collection-name" placeholder="New collection" maxlength="80" required>
+          <button type="submit">Create</button>
+        </form>
+      </aside>
+      <section class="entries" aria-labelledby="entries-title">
+        <div class="browse">
+          <div><h2 id="entries-title">All items</h2><p id="item-count" class="hint"></p></div>
+          <label class="sr-only" for="search">Search links</label>
+          <input id="search" type="search" placeholder="Search links" autocomplete="off">
+        </div>
+        <div id="items"></div>
+      </section>
+    </div>
+    <details class="backup">
+      <summary>Backup and restore</summary>
+      <p class="hint">Keep a copy or add entries from another Inntake Library backup.</p>
+      <div class="actions"><button id="export">Export JSON</button><button id="import">Import JSON</button></div>
+      <input type="file" id="import-file" accept="application/json,.json" hidden>
+    </details>
+  </main>
+  <dialog id="editor" aria-labelledby="editor-title">
+    <div class="dialog-head"><h2 id="editor-title">Add link</h2><button id="close" aria-label="Close link form">×</button></div>
+    <form id="link-form">
+      <label>Link<input id="url" type="url" placeholder="https://" autocapitalize="none" spellcheck="false" required maxlength="3000" autofocus></label>
+      <label>Collection<select id="collection"></select></label>
+      <label>Title <span class="hint">Optional</span><input id="title" maxlength="200"></label>
+      <label>Note <span class="hint">Optional</span><textarea id="note" rows="3" maxlength="5000"></textarea></label>
+      <p id="form-status" class="hint" role="status"></p>
+      <button class="primary" type="submit">Save link</button>
+    </form>
+  </dialog>
+</body>
+</html>

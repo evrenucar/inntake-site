@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#251c18">
+  <meta name="description" content="A library for all your thoughts">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self'; object-src 'none'; base-uri 'none'">
+  <title>Inntake</title>
+  <link rel="preload" as="image" href="./assets/mallet.png">
+  <link rel="icon" href="./assets/icon-192.png">
+  <link rel="stylesheet" href="./style.css?v=opening1">
+  <link rel="stylesheet" href="./guidebook.css?v=opening">
+  <link rel="stylesheet" href="./drawer.css?v=inventory">
+  <script src="./wall-art.js?v=opening1" defer></script>
+  <script src="./drag.js?v=5" defer></script>
+  <script src="./room-surfaces.js?v=opening1" defer></script>
+  <script src="./sunlight.js?v=3" defer></script>
+  <script src="./cabinet-depth.js" defer></script>
+  <script src="./inspect-art.js?v=drawer5" defer></script>
+  <script src="./room-fly.js?v=visits" defer></script>
+  <script src="./drawer-finds.js?v=1" defer></script>
+  <script src="./drawer-art.js?v=opening1" defer></script>
+  <script src="./inspector.js?v=opening1" defer></script>
+  <script src="./shelf.js?v=opening1" defer></script>
+</head>
+<body>
+  <main class="room">
+    <canvas class="wall" aria-hidden="true"></canvas>
+    <p class="wordmark">Inntake</p>
+    <canvas class="sunlight" aria-hidden="true"></canvas>
+    <canvas class="room-veil" aria-hidden="true"></canvas>
+    <div class="picture-space">
+      <figure class="picture">
+        <h1>A library for all your thoughts</h1>
+        <canvas class="wall-painting" width="160" height="112" aria-hidden="true"></canvas>
+      </figure>
+    </div>
+    <div class="cabinet-space">
+      <div class="cabinet">
+        <noscript><img class="scene-art" src="./assets/shelf.png" alt="A wooden cabinet with two shelves of books, bottles and plants" width="1536" height="1024"></noscript>
+        <canvas class="shelf-scene" aria-hidden="true" hidden></canvas>
+        <p id="shelf-help" class="visually-hidden">Hover or focus an object to see its name. Click or tap it to look inside. Drag it onto another object to trade places. Drop it on bare wood to place it on that shelf. A drawer stores it until you open the drawer and return it. With a keyboard, use Alt and an arrow key to move an object, or H to put it in the Unfiled drawer.</p>
+        <p class="shelf-tip" hidden>Shift items in your collection around.</p>
+        <div class="nameplates" aria-hidden="true"></div>
+        <div class="shelf-controls" role="group" aria-label="Explore the shelves" aria-describedby="shelf-help"></div>
+        <div class="tag" aria-hidden="true" hidden><canvas width="9" height="9"></canvas><span></span></div>
+        <p class="visually-hidden" role="status" id="shelf-status"></p>
+      </div>
+    </div>
+    <nav class="bench" aria-label="On the floor">
+      <button class="floor-object guide-opener" type="button" aria-haspopup="dialog" aria-controls="guidebook">
+        <canvas class="grimoire" width="80" height="48" aria-hidden="true"></canvas><span>Guidebook</span>
+      </button>
+      <a class="floor-object library-entry" href="./app/" aria-haspopup="dialog" aria-label="Start your own Library">
+        <canvas class="mallet" width="80" height="48" aria-hidden="true"></canvas>
+        <span>Start your own Library</span>
+      </a>
+      <button class="floor-object repo-entry" type="button" aria-haspopup="dialog" data-repository="https://github.com/evrenucar/inntake-site">
+        <canvas class="repo-map" width="80" height="48" aria-hidden="true"></canvas><span>GitHub map</span>
+      </button>
+    </nav>
+  </main>
+  <dialog class="guidebook" id="guidebook" aria-labelledby="guide-title">
+    <canvas class="guide-art" aria-hidden="true"></canvas>
+    <div class="book-spread">
+      <section class="book-page">
+        <h2 id="guide-title" tabindex="-1">Guidebook</h2>
+        <div data-spread="0">
+          <h3>Save a link</h3>
+          <p>Pick up the mallet and choose <strong>Start your own Library</strong>. Paste a link into your library to keep it on this device.</p>
+        </div>
+        <div data-spread="1" hidden>
+          <h3>Explore the room</h3>
+          <p>Pick up a bottle, open a book, or look inside a box. Click the darkened room to put the object back.</p>
+        </div>
+      </section>
+      <section class="book-page">
+        <div data-spread="0">
+          <h3>Find it again</h3>
+          <p>Every saved link lives in <strong>All items</strong>. Use collections to keep related links together.</p>
+        </div>
+        <div data-spread="1" hidden>
+          <h3>Arrange a shelf</h3>
+          <p>Drag an object onto another to trade places. Drop it on bare wood to place it on that shelf. A drawer can hold it until you bring it back.</p>
+          <details><summary>Keyboard controls</summary><p>Press Enter to inspect. Use Alt and an arrow key to shift an object, or H to put it in the Unfiled drawer.</p></details>
+        </div>
+        <button type="button" class="book-close" data-dismiss>Close book</button>
+      </section>
+    </div>
+    <nav class="book-navigation" aria-label="Guidebook pages"><button class="book-prev" type="button">Previous</button><span class="folio" aria-live="polite">1 – 2</span><button class="book-next" type="button">Next</button></nav>
+  </dialog>
+  <dialog class="inspect-dialog" aria-labelledby="inspect-title">
+    <button type="button" class="inspect-close" aria-label="Back to the room" data-dismiss>×</button>
+    <h2 id="inspect-title" tabindex="-1"></h2>
+    <div class="inspect-stage"><button class="inspect-art" type="button" aria-label="Explore object"><canvas aria-hidden="true"></canvas></button></div>
+    <p class="inspect-note" aria-live="polite"></p>
+    <div class="inspect-actions">
+      <button class="inspect-interact" type="button"></button>
+      <a class="inspect-link" hidden></a>
+      <button class="inspect-tuck" type="button" hidden>Put in Unfiled drawer</button>
+    </div>
+  </dialog>
+  <dialog class="storage-dialog" aria-labelledby="storage-title">
+    <button type="button" class="inspect-close" aria-label="Back to the room" data-dismiss>×</button>
+    <h2 id="storage-title" tabindex="-1"></h2>
+    <div class="drawer-stage">
+      <canvas aria-hidden="true" width="320" height="190"></canvas>
+      <div class="drawer-contents" role="group" aria-labelledby="storage-title"></div>
+    </div>
+    <p class="drawer-note"></p>
+  </dialog>
+</body>
+</html>

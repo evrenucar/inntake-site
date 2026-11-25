@@ -1,0 +1,405 @@
+@font-face {
+  font-family: 'Jersey 15';
+  src: url('./assets/jersey-15.woff2') format('woff2');
+  font-display: swap;
+}
+
+:root {
+  color-scheme: dark;
+  color: #ffe3ae;
+  background: #241a16;
+  font: 1rem/1.2 'Jersey 15', monospace;
+}
+* { box-sizing: border-box; }
+body, figure, p, h1 { margin: 0; }
+[hidden] { display: none !important; }
+.visually-hidden, .painted h1 {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.room {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-template: "picture cabinet" minmax(0, 1fr) "bench bench" 23% / minmax(0, .65fr) minmax(0, 1.35fr);
+  height: 100vh;
+  height: 100svh;
+  min-height: 265px;
+  overflow: clip;
+  background: #251c18;
+}
+
+.wall { position: absolute; inset: 0; width: 100%; height: 100%; z-index: -1; }
+canvas, .scene-art { image-rendering: pixelated; }
+.picture-space, .cabinet-space { display: grid; place-items: center; container-type: size; min-width: 0; min-height: 0; }
+.picture-space { grid-area: picture; margin: 0 0 1vh clamp(12px, 3.4vw, 64px); }
+.picture { position: relative; width: min(96cqw, 102cqh, 26rem); }
+.picture h1 { font-weight: normal; }
+.wall-painting, .shelf-scene, .scene-art { display: block; width: 100%; height: auto; }
+.wall-painting { filter: drop-shadow(3px 5px 0 #1b131280); }
+.cabinet-space { grid-area: cabinet; align-items: end; margin: 0 clamp(10px, 2.8vw, 85px) 0 clamp(6px, 1.6vw, 33px); }
+.cabinet {
+  position: relative;
+  width: min(100cqw, 140cqh, 69rem);
+  aspect-ratio: 1536 / 1088;
+  container-type: inline-size;
+}
+.shelf-scene, .shelf-controls { position: absolute; inset: 0; width: 100%; height: 100%; }
+.shelf-scene { pointer-events: none; overflow: visible; }
+.shelf-controls { pointer-events: none; }
+.prop {
+  position: absolute;
+  display: block;
+  pointer-events: auto;
+  z-index: 1;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+}
+/* The long vine can cross a drawer or a bottle. Those controls remain reachable
+   through its trailing leaves; the plant itself can be picked up at its crown. */
+.prop[data-id="plant"] { z-index: 0; }
+.prop.movable { cursor: grab; touch-action: none; }
+.cabinet.is-dragging, .cabinet.is-dragging .prop { cursor: grabbing; }
+.prop:focus { outline: 0; }
+.tag {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: .38em;
+  padding: .19em .42em .23em;
+  color: #ffdda6;
+  background: #392920;
+  box-shadow: inset 0 2px #b28755, inset 0 -2px #725137, 2px 2px #241b17;
+  font-size: clamp(1rem, 1.6vw, 1.42rem);
+  line-height: 1;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.tag canvas { width: .82em; height: .82em; }
+.bench {
+  grid-area: bench;
+  display: grid;
+  grid-template-columns: 1fr 1.45fr 1fr;
+  align-items: center;
+  justify-items: center;
+  padding: 0 5vw max(env(safe-area-inset-bottom), 1vh);
+}
+.floor-object {
+  display: inline-grid;
+  justify-items: center;
+  align-content: center;
+  gap: .08em;
+  max-width: 100%;
+  min-height: 44px;
+  padding: 0 3px;
+  border: 0;
+  background: none;
+  color: #ffe0a3;
+  font: inherit;
+  font-size: clamp(1.05rem, 1.8vw, 1.55rem);
+  line-height: 1;
+  text-align: center;
+  text-decoration: none;
+  text-shadow: 1px 2px #30221d, -1px 0 #30221d, 0 -1px #30221d;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.floor-object canvas { width: min(18.8vw, 24svh, 13.5rem); height: auto; }
+.library-entry canvas { width: min(19.7vw, 25svh, 14rem); }
+.guide-opener { transform: translateY(-5%); }
+.repo-entry { transform: translateY(4%); }
+.floor-object:hover, .floor-object:focus-visible { color: #fff1c5; }
+.floor-object:hover canvas, .floor-object:focus-visible canvas { filter: brightness(1.14); }
+.floor-object:focus-visible { outline: 2px dashed #ce9c69; outline-offset: 2px; }
+@media (max-aspect-ratio: 1/1) {
+  .room { grid-template: "picture" minmax(0,.82fr) "cabinet" minmax(0,1.18fr) "bench" 23% / 1fr; }
+  .picture-space { margin: max(env(safe-area-inset-top), 7px) 0 0; align-items: end; }
+  .picture { width: min(64cqw, 127cqh, 22rem); }
+  .cabinet-space { margin: 0 clamp(5px, 2vw, 25px); }
+  .bench { padding-bottom: max(env(safe-area-inset-bottom), 1vh); }
+  .tag { font-size: clamp(1rem, 3.25vw, 1.27rem); }
+}
+@media (max-height: 450px) and (orientation: landscape) {
+  .bench { padding-bottom: max(env(safe-area-inset-bottom), 2px); }
+}
+.held { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 3; pointer-events: none; }
+
+.wordmark {
+  position: absolute;
+  z-index: 1;
+  top: max(env(safe-area-inset-top), clamp(15px, 4.4vh, 58px));
+  left: max(env(safe-area-inset-left), clamp(20px, 4.1vw, 76px));
+  color: #dfae72;
+  text-shadow: 2px 2px #302019;
+  font-size: clamp(1.65rem, 2.8vw, 2.8rem);
+  letter-spacing: .025em;
+  line-height: 1;
+  pointer-events: none;
+}
+.sunlight {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 4;
+  mix-blend-mode: screen;
+  pointer-events: none;
+}
+.nameplates { position: absolute; inset: 0; pointer-events: none; }
+.plate {
+  position: absolute;
+  display: inline-flex;
+  align-items: center;
+  gap: .26em;
+  padding: .04em .34em .12em;
+  color: #f4d39d;
+  background: #50351f;
+  box-shadow: inset 0 1px #c29159, inset 0 -1px #281d16, 1px 1px #3c271b;
+  font-size: clamp(.76rem, 2.55cqw, 1.23rem);
+  line-height: 1;
+  white-space: nowrap;
+  transform: translateY(-50%);
+}
+.plate canvas { width: .69em; height: .69em; }
+.plate.drawer {
+  transform: translate(-50%, -50%);
+  border-inline: 2px solid #916c3e;
+  background: #664426;
+}
+.plate.is-lit { color: #fff0bc; background: #805532; }
+@media (max-height: 450px) and (orientation: landscape) {
+  .floor-object canvas, .library-entry canvas { width: min(16vw, 19.5svh); }
+  .floor-object { font-size: 1rem; }
+}
+
+@media (max-width: 690px) {
+  .bench { grid-template-columns: 1fr 1fr 1fr; padding-inline: 2vw; }
+  .floor-object canvas { width: min(28vw, 23svh); }
+  .library-entry canvas { width: min(28vw, 24svh); }
+}
+.shelf-tip {
+  position: absolute;
+  z-index: 3;
+  top: 11.3%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: 88%;
+  padding: .18em .65em .26em;
+  color: #f9d79b;
+  background: #38291eea;
+  box-shadow: inset 0 1px #906c44, 1px 2px #302118;
+  text-align: center;
+  font-size: clamp(.95rem, 2.5cqw, 1.3rem);
+  line-height: 1;
+  pointer-events: none;
+}
+.plate[data-count]::after { content: attr(data-count); color: #ffdd99; }
+
+dialog {
+  max-width: calc(100vw - 28px);
+  max-height: calc(100svh - 32px);
+}
+dialog::backdrop { background: rgb(26 20 17 / 66%); }
+dialog h2, dialog h3, dialog summary, dialog button { font-family: 'Jersey 15', monospace; font-weight: 400; }
+dialog button, dialog summary { cursor: pointer; }
+dialog :is(button,summary):focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+.guidebook {
+  padding: 0;
+  width: 39rem;
+  border: 5px solid #61412f;
+  color: #3f3023;
+  background: #d5b789;
+  box-shadow: 0 2px 0 2px #94704d, 4px 7px 0 #271c16;
+  font: 1rem/1.45 Georgia, serif;
+}
+.book-spread { display: grid; grid-template-columns: 1fr 1fr; }
+.book-page { padding: clamp(20px, 3vw, 32px); }
+.book-page:first-child { background: linear-gradient(90deg,#d4b68b,#e6ce9f 82%,#ccaf84 97%,#ad906a); }
+.book-page + .book-page { padding-top: 3.4rem; background: linear-gradient(90deg,#a58a64,#ddc299 8%,#e2c99e 75%,#dabe94); }
+.book-page h2, .storage-dialog h2 { margin: 0 0 .45em; font-size: 2.35rem; line-height: .95; }
+.book-page h3 { margin: .7em 0 .2em; font-size: 1.55rem; line-height: 1; }
+.book-page strong { color: #4f3522; }
+.book-page details { margin: .9em 0; }
+.book-page summary { font-size: 1.1rem; }
+.book-page details p { margin-top: .3rem; font-size: .94rem; }
+.book-close {
+  padding: .15em .45em .22em;
+  border: 1px solid currentColor;
+  color: inherit;
+  background: transparent;
+  font-size: 1.15rem;
+}
+@media (max-width: 550px) {
+  .book-spread { display: block; }
+  .book-page:first-child, .book-page + .book-page { background: #e1c79b; }
+  .book-page + .book-page { padding-top: 0; }
+  .book-page h3 { margin-top: 0; }
+}
+
+/* Three different depths on the floor, measured from the cabinet feet. */
+.picture { width: min(87cqw, 94cqh, 24rem); }
+.guide-opener { align-self: start; transform: translate(-5%, -7%); }
+.guide-opener canvas { transform: rotate(-4deg); }
+.library-entry { align-self: end; transform: translateX(-6%); }
+.repo-entry { align-self: center; transform: translate(6%, -4%); }
+.repo-entry canvas { transform: rotate(4deg); }
+@media (max-aspect-ratio: 1/1) {
+  .picture { width: min(59cqw, 118cqh, 20.5rem); }
+}
+@media (max-width: 690px) {
+  .guide-opener { transform: translate(2%, 5%); }
+  .library-entry { transform: translateY(-3%); }
+  .repo-entry { transform: translate(-2%, -4%); }
+}
+@media (max-height: 450px) and (orientation: landscape) {
+  .guide-opener { transform: translateY(-12%); }
+  .repo-entry { transform: none; }
+}
+:root { --inspect-enter: 1150ms; --inspect-leave: 480ms; }
+.room-veil {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 6;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--inspect-leave) ease-in-out;
+}
+.room.is-inspecting .room-veil { opacity: .87; transition-duration: var(--inspect-enter); transition-timing-function: cubic-bezier(.33333,0,.66667,1); }
+/* The room fade and the trip from shelf to hand finish on the same frame. */
+:is(.inspect-dialog,.storage-dialog)[open] > :is(h2,p,.inspect-actions,.inspect-close),
+.guidebook[open] { animation: veil-in var(--inspect-enter) cubic-bezier(.33333,0,.66667,1) both; }
+:is(.inspect-dialog,.guidebook,.storage-dialog)::backdrop {
+  background-color: rgb(12 10 10 / 73%);
+  background-image: repeating-conic-gradient(rgb(0 0 0 / 10%) 0% 25%, transparent 0% 50%);
+  background-size: 5px 5px;
+  animation: veil-in var(--inspect-enter) cubic-bezier(.33333,0,.66667,1) both;
+}
+:is(.inspect-dialog,.guidebook,.storage-dialog).leaving { animation: put-back var(--inspect-leave) ease-in-out both; }
+:is(.inspect-dialog,.guidebook,.storage-dialog).leaving::backdrop { animation: veil-out var(--inspect-leave) ease-in-out both; }
+@keyframes veil-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes veil-out { from { opacity: 1; } to { opacity: 0; } }
+@keyframes put-back { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(4px) scale(.98); } }
+.inspect-dialog {
+  width: min(44rem, 94vw);
+  padding: 1.25rem .6rem 1.35rem;
+  border: 0;
+  color: #ffe5b6;
+  background: transparent;
+  text-align: center;
+  overflow: visible;
+}
+.inspect-dialog[open] { display: grid; justify-items: center; gap: .7rem; }
+.inspect-dialog h2 {
+  margin: 0;
+  font-size: clamp(1.65rem, 5vw, 2.8rem);
+  font-weight: 400;
+  line-height: 1;
+  overflow-wrap: anywhere;
+}
+.inspect-dialog h2:focus, .guidebook h2:focus { outline: none; }
+.inspect-close {
+  position: absolute; right: .2rem; top: .15rem;
+  height: 44px; width: 44px; border: 0; background: none; color: #e9d1a4;
+  font: 1.9rem/1 'Jersey 15', monospace;
+}
+.inspect-stage {
+  display: grid;
+  place-items: center;
+  width: min(85vw, 38rem);
+  height: min(46svh, 26rem);
+  container-type: size;
+}
+.inspect-art {
+  display: block;
+  width: min(100cqw, calc(100cqh * var(--shape, 1)));
+  max-width: 100%;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.inspect-art { touch-action: none; user-select: none; }
+.inspect-art.is-playing { cursor: grabbing; }
+.inspect-art canvas { width: 100%; height: auto; display: block; }
+.inspect-note {
+  max-width: 38ch; min-height: 2.4em; margin: 0;
+  font: 1.06rem/1.35 Georgia, serif; color: #e8cfac; text-wrap: pretty;
+}
+.inspect-actions { display: flex; gap: .65rem; justify-content: center; align-items: center; flex-wrap: wrap; }
+.inspect-actions :is(button,a) {
+  display: inline-grid; place-items: center; min-height: 40px;
+  padding: .25em .65em; background: #493423; color: #ffe2aa;
+  border: 1px solid #bd935d; font: 1.19rem/1.05 'Jersey 15', monospace; text-decoration: none;
+}
+.inspect-actions .inspect-tuck {
+  background: transparent; border-color: transparent; color: #ceb28a; text-decoration: underline; text-underline-offset: .18em;
+}
+.inspect-actions :is(button,a):hover { color: #fff2cf; }
+@media (max-height: 470px) {
+  .inspect-stage { height: 40svh; }
+  .inspect-dialog[open] { gap: .3rem; }
+  .inspect-note { min-height: auto; }
+}
+@media (prefers-reduced-motion: reduce) {
+  :root:not(.full-motion) .room-veil { transition: none; }
+  :root:not(.full-motion) :is(.inspect-dialog,.guidebook,.storage-dialog)[open], :root:not(.full-motion) :is(.inspect-dialog,.guidebook,.storage-dialog)::backdrop { animation-duration: 1ms; }
+}
+.storage-dialog {
+  width: min(42rem, 96vw, 138svh);
+  max-width: 96vw;
+  padding: .7rem 0;
+  border: none;
+  background: transparent;
+  color: #ffe3b2;
+  text-align: center;
+  overflow: visible;
+}
+.storage-dialog h2 { font-weight: 400; margin: .2rem 2.5rem 0; outline: none; }
+.drawer-stage { position: relative; width: 100%; aspect-ratio: 320 / 190; }
+.drawer-stage canvas, .drawer-contents { display: block; position: absolute; inset: 0; width: 100%; height: 100%; }
+.drawer-contents { pointer-events: none; }
+.drawer-contents button {
+  pointer-events: auto;
+  position: absolute; cursor: pointer; background: transparent; border: 0;
+  border-radius: 20%; padding: 0; touch-action: manipulation;
+}
+.drawer-contents button:focus-visible { outline: 2px dashed #f1bd7a; outline-offset: -2px; }
+.drawer-note { min-height: 1.4em; margin: 0; font: 1.05rem/1.4 Georgia, serif; color: #e8cfac; }
+@media (prefers-reduced-motion: reduce) {
+  :root:not(.full-motion) { --inspect-enter: 1ms; --inspect-leave: 1ms; }
+}
+/* The front board appears first as the back of the drawer slides out of the case. */
+.storage-dialog[open] .drawer-stage {
+  animation: pull-drawer var(--inspect-enter) cubic-bezier(.33333,0,.66667,1) both;
+}
+@keyframes pull-drawer {
+  from { clip-path: inset(65% 0 0); }
+  to { clip-path: inset(0); }
+}
+
+.library-entry span, .inspect-link.library-glow {
+  color: #ffdfa0;
+  text-shadow: 1px 2px #3c271b, 0 0 .38em #df9d4d, 0 0 .8em #ac673b;
+}
+.library-entry span { max-width: 19ch; text-wrap: balance; }
+.library-entry:is(:hover,:focus-visible) span, .inspect-link.library-glow:is(:hover,:focus-visible) {
+  color: #ffedc6;
+  text-shadow: 1px 2px #3c271b, 0 0 .38em #ffc470, 0 0 .8em #e79554;
+}

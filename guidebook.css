@@ -1,0 +1,271 @@
+/* The dark red binding projects beyond the page block. Its narrow edges remain
+   visible when the book is read in a single column. */
+dialog.guidebook {
+  --leather-edge: clamp(9px, 1.6vw, 16px);
+  --ink: #392a21;
+  --rust: #70412e;
+  --paper: #e4cda0;
+  --grain: radial-gradient(ellipse at 2px 1px, #8b714d26 0 .65px, transparent 1.15px) 0 0 / 17px 11px,
+    radial-gradient(ellipse at 4px 3px, #fff3cf42 0 .65px, transparent 1.1px) 2px 1px / 11px 19px;
+  box-sizing: border-box;
+  isolation: isolate;
+  width: min(50rem, calc(100vw - 2.2rem));
+  max-width: calc(100vw - 1.5rem);
+  max-height: calc(100svh - max(2.3rem, env(safe-area-inset-top)));
+  margin: auto;
+  padding: var(--leather-edge) var(--leather-edge) calc(var(--leather-edge) + 3px);
+  border: solid #34211c;
+  border-width: 3px 4px 5px 3px;
+  border-radius: 7px 8px 9px 5px / 5px 7px 8px 7px;
+  background:
+    radial-gradient(ellipse at 2px 1px, #bd946344 0 .8px, transparent 1.2px) 1px 3px / 9px 7px,
+    repeating-linear-gradient(125deg, transparent 0 5px, #361e192d 6px 7px, transparent 8px 12px),
+    linear-gradient(90deg, #614334, #714633 7%, #593629 36%, #432b23 48.5%, #754d36 50%,
+      #4c3125 51.3%, #694030 75%, #754b36 96%, #57382d);
+  box-shadow: inset 1px 2px #b09263, inset -2px -2px #2f211c,
+    inset 0 0 0 4px #704936, 0 2px #8e664b, 2px 6px #30211b, 5px 12px 14px #160f1380;
+  color: var(--ink);
+  color-scheme: light;
+  font: 400 clamp(1rem, 1.35vw, 1.1rem)/1.56 Georgia, 'Times New Roman', serif;
+  scrollbar-color: #946d4c #523827;
+  overscroll-behavior: contain;
+}
+
+/* Brass corner-pieces and the pricked line of the binding. */
+.guidebook::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  pointer-events: none;
+  inset: 3px;
+  border: 1px dashed #b18a57;
+  border-radius: 5px;
+  opacity: .86;
+  background:
+    linear-gradient(135deg, #c89c65 0 3px, #75503b 4px 5px, transparent 6px) left top,
+    linear-gradient(225deg, #b48d61 0 3px, #745241 4px 5px, transparent 6px) right top,
+    linear-gradient(45deg, #9f7654 0 3px, #684432 4px 5px, transparent 6px) left bottom,
+    linear-gradient(315deg, #b58c60 0 3px, #704c36 4px 5px, transparent 6px) right bottom;
+  background-repeat: no-repeat;
+  background-size: 1.1rem 1.1rem;
+}
+
+.guidebook .book-spread {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0,1fr) minmax(0,1fr);
+  min-height: clamp(17rem, 44vh, 22rem);
+  margin: 0 1px 6px;
+  border: 1px solid #a2875f;
+  border-radius: 4px 5px 5px 3px;
+  background: var(--paper);
+  box-shadow: 0 1px #f0d9ae, 0 2px #8b7456, 0 3px #ceba95, 0 4px #8f7558,
+    0 5px #cbb38c, 1px 6px #826448, 2px 7px #3c2b23, 2px 8px 4px #281d1677;
+}
+
+.guidebook .book-page {
+  position: relative;
+  min-width: 0;
+  overflow-wrap: break-word;
+  padding: clamp(1.75rem, 3.5vw, 2.8rem) clamp(1.55rem, 3.4vw, 2.8rem);
+}
+.guidebook .book-page:first-child {
+  border-radius: 4px 0 0 3px;
+  background:
+    var(--grain),
+    radial-gradient(ellipse at 4% 0%, #8b623951, transparent 25%),
+    radial-gradient(ellipse at 8% 99%, #926d4442, transparent 22%),
+    linear-gradient(90deg, #ceb084 0, #ead4ab 6%, #eddbb3 38%, #e5cfa5 76%, #d8be96 92%, #bba077 98%, #9d805e);
+}
+.guidebook .book-page + .book-page {
+  border-radius: 0 5px 5px 0;
+  background:
+    var(--grain),
+    radial-gradient(ellipse at 100% 8%, #a77e5140, transparent 24%),
+    radial-gradient(ellipse at 94% 100%, #976e4445, transparent 22%),
+    linear-gradient(90deg, #b39873, #d9c19a 5%, #ead4ad 16%, #ebd6ac 54%, #dfc699 94%, #c6aa80);
+}
+
+/* Impressed corner-work stays out of the text block. Layers break into small
+   stepped marks around a single diamond instead of an all-around printed rule. */
+.guidebook .book-page::before {
+  content: '';
+  position: absolute;
+  pointer-events: none;
+  left: .62rem;
+  top: .63rem;
+  width: 25px;
+  height: 23px;
+  background:
+    linear-gradient(135deg, transparent 40%, #9b764c 41% 55%, transparent 56%) 5px 5px / 8px 8px,
+    linear-gradient(45deg, transparent 38%, #a98656 39% 52%, transparent 53%) 6px 5px / 7px 8px,
+    linear-gradient(#9d7851, #9d7851) 0 0 / 22px 1px,
+    linear-gradient(#b09566, #b09566) 0 0 / 1px 20px,
+    linear-gradient(#ad8b60, #ad8b60) 3px 3px / 10px 1px,
+    linear-gradient(#ad8b60, #ad8b60) 3px 3px / 1px 9px;
+  background-repeat: no-repeat;
+  filter: drop-shadow(0 1px #f3e0b9);
+  opacity: .74;
+}
+.guidebook .book-page + .book-page::before { inset: auto .62rem .63rem auto; transform: rotate(180deg); }
+
+/* Three stations of pierced linen thread stitch the center of the signature. */
+.guidebook .book-spread::after {
+  content: '';
+  pointer-events: none;
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  left: 50%;
+  bottom: 0;
+  width: 10px;
+  transform: translateX(-50%);
+  background:
+    linear-gradient(110deg, transparent 35%, #775a3e 37% 52%, #d6ba8a 54% 62%, transparent 64%) center 17% / 6px 10px,
+    linear-gradient(110deg, transparent 35%, #775a3e 37% 52%, #d6ba8a 54% 62%, transparent 64%) center 51% / 6px 10px,
+    linear-gradient(110deg, transparent 35%, #775a3e 37% 52%, #d6ba8a 54% 62%, transparent 64%) center 85% / 6px 10px,
+    linear-gradient(90deg, transparent, #63432a4d 40%, #63432a70 50%, #f2dcb32e 60%, transparent);
+  background-repeat: no-repeat;
+}
+
+.guidebook .book-page h2,
+.guidebook .book-page h3 {
+  font-family: 'Jersey 15', Georgia, serif;
+  font-weight: 400;
+  color: var(--rust);
+  text-wrap: balance;
+}
+.guidebook .book-page h2 {
+  margin: 0 0 .39em;
+  font-size: clamp(2.5rem, 4.4vw, 3.4rem);
+  line-height: .96;
+}
+.guidebook .book-page h3 {
+  margin: .85em 0 .28em;
+  font-size: clamp(1.55rem, 2.45vw, 2rem);
+  line-height: 1.03;
+}
+.guidebook .book-page h3:first-child { margin-top: .2em; }
+.guidebook .book-page p { margin: 0 0 .75em; }
+.guidebook .book-page :last-child { margin-bottom: 0; }
+.guidebook .book-page strong { color: #493023; }
+.guidebook .book-page details { margin-block: .8rem; }
+.guidebook .book-page summary { color: #66422c; font-size: 1.27rem; line-height: 1.25; }
+.guidebook .book-page details p { font-size: 1rem; line-height: 1.48; margin-top: .4rem; }
+
+.guidebook .book-navigation {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .65rem;
+  margin-top: .68rem;
+  padding-inline: .4rem;
+  color: #efdcaf;
+}
+.guidebook .folio {
+  flex: 1;
+  text-align: center;
+  font: italic 1rem/1.25 Georgia, serif;
+  font-variant-numeric: oldstyle-nums;
+}
+.guidebook :is(.book-prev, .book-next, .book-close) {
+  min-height: 40px;
+  padding: .27em .68em .35em;
+  color: #f1deae;
+  background: #513a2b;
+  border: 1px solid #ac875d;
+  border-radius: 2px;
+  box-shadow: inset 1px 1px #876345, inset -1px -1px #362920;
+  font: 400 1.25rem/1 'Jersey 15', Georgia, serif;
+}
+.guidebook :is(.book-prev, .book-next, .book-close):hover { color: #fff0c7; background-color: #674939; }
+.guidebook :is(.book-prev, .book-next):disabled {
+  color: #d0b594;
+  border-color: #846647;
+  opacity: .64;
+  cursor: default;
+}
+.guidebook .book-page .book-close {
+  margin-top: .7rem;
+  color: #5c412c;
+  background: #dcc49a;
+  box-shadow: inset 1px 1px #efdbb7;
+  border-color: #937451;
+}
+.guidebook :is(button,summary):focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+
+@media (max-width: 600px) {
+  dialog.guidebook { width: min(27rem,calc(100vw - 1.2rem)); max-width: calc(100vw - 1.2rem); }
+  .guidebook .book-spread { display: block; min-height: 0; }
+  .guidebook .book-page, .guidebook .book-page + .book-page {
+    padding: 1.25rem clamp(1.05rem, 6vw, 1.75rem) 1rem;
+    border-radius: 0;
+    background:
+      var(--grain),
+      radial-gradient(ellipse at 100% 84%, #a7834d24, transparent 26%),
+      linear-gradient(90deg,#bba17c,#dfc79f 4%,#ead5ae 13%,#ead6b0 76%,#dfc69c 96%,#c9af87);
+  }
+  .guidebook .book-page + .book-page { padding-top: .3rem; }
+  .guidebook .book-page + .book-page h3:first-child { margin-top: .4em; }
+  .guidebook .book-page::before { left: .33rem; top: .4rem; transform: scale(.6); transform-origin: top left; }
+  .guidebook .book-page + .book-page::before { inset: auto .33rem .4rem auto; transform: scale(.6) rotate(180deg); transform-origin: center; }
+  .guidebook .book-spread::after { left: 2px; width: 7px; transform: none; }
+  .guidebook .book-navigation { gap: .3rem; padding-inline: 2px; }
+  .guidebook :is(.book-prev,.book-next,.book-close) { min-height: 44px; }
+  .guidebook .book-page h2 { font-size: 2.45rem; }
+}
+@media (max-height: 490px) and (min-width: 601px) {
+  .guidebook .book-spread { min-height: 0; }
+  .guidebook .book-page { padding-block: 1.25rem; }
+  .guidebook .book-page h2 { font-size: 2.35rem; }
+}
+
+/* Ink and controls sit on the actual illustrated spread. The canvas carries
+   the loose page edges, cloth marker, leather boards and stitched hinge. */
+.guidebook .guide-art { display: none; }
+dialog.guidebook.illustrated {
+  position: fixed;
+  padding: clamp(15px, 2vw, 23px) clamp(12px, 1.6vw, 18px) clamp(14px, 1.8vw, 21px);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  overflow: auto;
+}
+.guidebook.illustrated .guide-art {
+  display: block;
+  position: absolute;
+  inset: 0 auto auto 0;
+  width: 100%;
+  z-index: -1;
+  image-rendering: pixelated;
+  pointer-events: none;
+  filter: drop-shadow(2px 3px 0 #261b1870);
+}
+.guidebook.illustrated::before,
+.guidebook.illustrated .book-spread::after,
+.guidebook.illustrated .book-page::before { display: none; }
+.guidebook.illustrated .book-spread,
+.guidebook.illustrated .book-page,
+.guidebook.illustrated .book-page + .book-page {
+  background: transparent;
+  box-shadow: none;
+  border: 0;
+}
+.guidebook.illustrated .book-spread { margin: 0 0 5px; }
+.guidebook.illustrated .book-page {
+  padding: clamp(2.2rem,4.3vw,3.3rem) clamp(1.65rem,4.2vw,3.25rem) clamp(2.2rem,4vw,3rem);
+}
+.guidebook.illustrated .book-navigation { margin: .64rem .6rem 0; }
+@media (max-width:600px) {
+  dialog.guidebook.illustrated { padding: 12px 10px 13px; }
+  .guidebook.illustrated .book-page,
+  .guidebook.illustrated .book-page + .book-page {
+    padding: 1.65rem 1.25rem .55rem clamp(2.35rem, 10vw, 3.25rem);
+  }
+  .guidebook.illustrated .book-page + .book-page { padding-top: 0; padding-bottom: 2.1rem; }
+  .guidebook.illustrated .book-navigation { margin: .65rem .2rem 0; }
+}
+@media (max-height:490px) and (min-width:601px) {
+  .guidebook.illustrated .book-page { padding-block:1.7rem; }
+}
