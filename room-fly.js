@@ -5,7 +5,7 @@ window.createInnFly = function createInnFly() {
   const explicitMotion = new URLSearchParams(window.location.search).get('motion') === 'on';
   const between = (min, max) => min + Math.random() * (max - min);
   const clamp = value => Math.max(0, Math.min(1, value));
-  const nextVisit = () => between(18000, 55000);
+  const nextVisit = () => between(10000, 30000);
   const dark = () => 0;
   let remaining = nextVisit();
   let previous = null;

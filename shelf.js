@@ -478,9 +478,9 @@ async function mount() {
     try {
       const data=JSON.parse(localStorage.getItem('inntake-local-library-v1'));
       if(data?.version!==1 || !Array.isArray(data.items)) return [];
-      return data.items.filter(item=>typeof item?.id==='string'&&item.id).map(item=>({
+      return data.items.filter(item=>typeof item?.id==='string'&&item.id&&!item.trashed&&!item.archived).map(item=>({
         id:item.id,name:typeof item.title==='string'&&item.title.trim()?item.title:String(item.url||'Untitled link'),
-        location:typeof item.collection==='string'&&item.collection.trim()?item.collection:'All items',
+        location:Array.isArray(item.collections)&&item.collections.length ? item.collections.join(', ') : item.collection || 'All items',
         href:'./app/?item='+encodeURIComponent(item.id)
       }));
     } catch {return [];}
