@@ -1,6 +1,6 @@
 const scope = new URL(self.registration.scope);
 const cachePrefix = 'inntake-library-shell:' + scope.href + ':';
-const cacheName = cachePrefix + 'viewer-3acc70ac30e47c83';
+const cacheName = cachePrefix + 'viewer-2ca6761331baba89';
 const files = ['index.html', 'app.js', 'viewer.js', 'viewer-storage.js', 'lucide-icons.json',
   'manifest.webmanifest', 'icon-192.png', 'icon-512.png'];
 const shell = new Set(files.map(path => new URL(path,scope).href));

@@ -369,22 +369,32 @@ const palettes = {
 // and colour choices stay independent of the browser's interface preference.
 const libraryStyles = {
   original: {label: 'Original'},
-  simple: {label: 'Pixelated Simple', palette: ['#191733','#282442','#75eee0','#333272','#512c65','#1b555a']},
+  simple: {label: 'Pixelated Simple', palette: ['#1e2c25','#2a382f','#edb27e','#4b5b38','#5c5235','#31493d']},
   inn: {label: 'Pixelated Inn', palette: ['#231b17','#342924','#efbe76','#66472b','#3f4c33','#50343b']},
   phosphor: {label: 'Phosphor Terminal', palette: ['#0b1511','#11221b','#98efa4','#204836','#273c26','#17403a']}
 };
 const styleKey = 'inntake-library-style';
 const stylePicker = $('#library-style');
-for (const [value, style] of Object.entries(libraryStyles)) stylePicker.add(new Option(style.label, value));
+let currentStyle = 'original';
+for (const [value, style] of Object.entries(libraryStyles)) {
+  const choice = element('label', 'style-choice');
+  const radio = element('input');
+  radio.type = 'radio'; radio.name = 'library-style'; radio.value = value;
+  const sample = element('span', 'style-sample');
+  sample.dataset.sample = value;
+  sample.setAttribute('aria-hidden', 'true');
+  choice.append(radio, sample, element('span', '', style.label));
+  stylePicker.append(choice);
+}
 function selectLibraryStyle(value) {
-  const id = Object.hasOwn(libraryStyles, value) ? value : 'original';
-  document.documentElement.dataset.libraryStyle = id;
-  stylePicker.value = id;
+  currentStyle = Object.hasOwn(libraryStyles, value) ? value : 'original';
+  document.documentElement.dataset.libraryStyle = currentStyle;
+  stylePicker.querySelector(`input[value="${currentStyle}"]`).checked = true;
   applyAppearance();
 }
-stylePicker.addEventListener('change', () => {
-  selectLibraryStyle(stylePicker.value);
-  try { localStorage.setItem(styleKey, stylePicker.value); } catch {}
+stylePicker.addEventListener('change', event => {
+  selectLibraryStyle(event.target.value);
+  try { localStorage.setItem(styleKey, currentStyle); } catch {}
 });
 window.addEventListener('storage', event => {
   if (event.key === styleKey || event.key === null) selectLibraryStyle(event.newValue);
@@ -399,7 +409,7 @@ function appearanceFor(name) {
 function paletteFor(name, appearance = appearanceFor(name)) {
   const index = [...(appearance.seed || name)].reduce((value, char) => ((value * 31 + char.codePointAt(0)) >>> 0), 0) % 4;
   const palette = [...(palettes[appearance.theme === 'auto' ? ['moss', 'ocean', 'ember', 'violet'][index] : appearance.theme] || palettes.moss)];
-  const style = libraryStyles[stylePicker.value];
+  const style = libraryStyles[currentStyle];
   if (style?.palette) {
     // Keep named collections recognisable within each style. Explicit custom
     // glows below remain exact hex colours for the collection colour picker.
@@ -1307,6 +1317,8 @@ function renderCard(source) {
   const linkPreview = genericLinkPreview(source);
   const card = element('article', 'card');
   card.dataset.sourceId = source.id;
+  card.dataset.keepsake = ({idea:'vial', consideration:'jar', question:'jar', todo:'box',
+    resource:'book', reference:'book', bookmark:'canister', 'project-log':'journal'})[item.category] || 'journal';
   if (item.trashed) {
     card.append(element('h2', '', source.title), trashButton(source));
     return card;
