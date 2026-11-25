@@ -477,9 +477,10 @@ async function mount() {
   const floorItems=[
     ['guide-opener','Guidebook'],['library-entry','Library mallet'],['repo-entry','Find Source']
   ];
-  function localInventory() {
+  async function localInventory() {
     try {
-      const data=JSON.parse(localStorage.getItem('inntake-local-library-v1'));
+      const {libraryView}=await import('./app/browser-store.js');
+      const data=JSON.parse((await libraryView()).raw);
       if(data?.version!==1 || !Array.isArray(data.items)) return [];
       return data.items.filter(item=>typeof item?.id==='string'&&item.id&&!item.trashed&&!item.archived).map(item=>({
         id:item.id,name:typeof item.title==='string'&&item.title.trim()?item.title:String(item.url||'Untitled link'),
@@ -493,7 +494,11 @@ async function mount() {
     window.inspectShelfObject({id, name:names[id][0], origin:buttons[id], source:atlas,
       crop:spec.objects[id].atlas, putAway:()=>tuck(id,'unfiled')});
   }
-  function openDrawer(place,selected=null) {
+  let drawerRequest=0;
+  async function openDrawer(place,selected=null) {
+    const request=++drawerRequest;
+    const library=place==='all'?await localInventory():[];
+    if(request!==drawerRequest) return;
     const stage=storageDialog.querySelector('.drawer-stage');
     storageDialog.querySelector('#storage-title').textContent=names[place][0];
     const objects=order.flat().map(id=>({
@@ -531,7 +536,7 @@ async function mount() {
       return '';
     };
     window.paintInnDrawer(stage,place,{tray,allItems,groups:rails.map(id=>names[id][0]),
-      library:place==='all'?localInventory():[],selected,returnItem});
+      library,selected,returnItem});
     hideHint();
     if(!storageDialog.open) window.presentInnDrawer(buttons[place]);
   }

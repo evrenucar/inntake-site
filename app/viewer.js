@@ -2364,6 +2364,35 @@ $('#refresh').addEventListener('click', () => loadCatalog(true));
 $('#settings-open').addEventListener('click', () => $('#settings-dialog').showModal());
 $('#settings-close').addEventListener('click', () => $('#settings-dialog').close());
 
+const macSync = $('#mac-sync');
+if (macSync) {
+  $('#settings-open').addEventListener('click', async () => {
+    try {
+      const response = await libraryFetch('/api/workspace-sync');
+      if (!response.ok) return;
+      const {remote} = await response.json();
+      macSync.hidden = !remote;
+      if (remote) $('#mac-sync-repo').textContent = new URL(remote).pathname.slice(1).replace(/\.git$/, '') + ' · inntake-library';
+    } catch { macSync.hidden = true; }
+  });
+  $('#mac-sync-now').addEventListener('click', async event => {
+    const button = event.currentTarget;
+    const status = $('#mac-sync-status');
+    button.disabled = true;
+    status.textContent = 'Syncing…';
+    try {
+      const response = await libraryFetch('/api/workspace-sync', {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Sync failed. Try again.');
+      status.textContent = 'Up to date.';
+      await loadCatalog(true);
+    } catch (error) { status.textContent = error.message; }
+    finally { button.disabled = false; }
+  });
+}
+
 const playlistInput = $('#youtube-playlist');
 const playlistSubmit = $('#youtube-preview-submit');
 const playlistAddAll = $('#youtube-add-all');

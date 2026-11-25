@@ -1,5 +1,6 @@
+import {exclusive, libraryView, mounted, readValue} from './browser-store.js';
 const libraryKey = 'inntake-local-library-v1';
-const libraryId = 'inntake-browser-library';
+const libraryId = 'inntake-browser-library' + (mounted === null ? '' : ':' + mounted.toLowerCase());
 const backupFormat = 'inntake-local-library';
 const categories = new Set(['', 'idea', 'consideration', 'question', 'todo', 'resource', 'reference', 'bookmark', 'project-log']);
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -135,7 +136,7 @@ const imagePaths = new Map();
 function normalizeRecord(value) {
   if (!object(value) || typeof value.id !== 'string' || !uuid.test(value.id)) throw new LocalError('The browser library has an invalid item.');
   const image = imageData(value.image);
-  const url = image ? '' : address(value.url);
+  const url = value.canonical && !value.url || image && !value.url ? '' : address(value.url);
   const title = field(value.title, 200, 'An item title is invalid.').trim() || (image ? 'Saved image' : new URL(url).hostname);
   const primary = value.collection || '';
   const collections = names(value.collections ?? (primary ? [primary] : []));
@@ -148,13 +149,21 @@ function normalizeRecord(value) {
     updatedAt: typeof value.updatedAt === 'string' && Number.isFinite(Date.parse(value.updatedAt)) ? value.updatedAt : createdAt,
     body, category: category(value.category ?? ''), impact, core: value.core === true, archived: value.archived === true, trashed: value.trashed === true,
     revision: typeof value.revision === 'string' ? value.revision : `legacy-${value.id}`};
+  if (value.canonical === true) {
+    record.canonical = true;
+    for (const key of ['tags', 'sourcePaths', 'relatedIds', 'urls']) {
+      record[key] = Array.isArray(value[key]) ? value[key].filter(item => typeof item === 'string') : [];
+    }
+    record.sourcePaths = record.sourcePaths.filter(path => path.startsWith('sources/') && path.split('/').every(part => part && !part.startsWith('.')));
+    record.urls = record.urls.filter(url => { try { address(url); return true; } catch { return false; } });
+  }
   if (image) record.image = image;
   if (typeof value.captureHash === 'string') record.captureHash = value.captureHash;
   if (metadataText(value.youtubeAuthor)) record.youtubeAuthor = metadataText(value.youtubeAuthor);
   return record;
 }
 
-function normalizeLibrary(value, backup = false) {
+export function normalizeLibrary(value, backup = false) {
   if (!object(value) || value.version !== 1 || !Array.isArray(value.items) || (backup && value.format !== backupFormat)) {
     throw new LocalError('Choose a JSON backup exported from the browser library.');
   }
@@ -181,19 +190,25 @@ function normalizeLibrary(value, backup = false) {
 }
 
 // Serialize read-modify-write operations across tabs sharing this library.
-function writeLibrary(operation) {
+function writeLibrary(storage, operation) {
+  if (storage.refresh) return exclusive(async () => {
+    await storage.refresh();
+    const result = await operation();
+    await storage.flush();
+    return result;
+  });
   const locks = globalThis.navigator?.locks;
   return locks ? locks.request(libraryKey, operation) : operation();
 }
 
-function load(storage) {
+export function load(storage) {
   const raw = storage.getItem(libraryKey);
   if (raw === null) return normalizeLibrary({version: 1, collections: [], items: []});
   try { return normalizeLibrary(JSON.parse(raw)); }
   catch { throw new LocalError('Could not read this browser’s saved library.', 500); }
 }
 
-function save(storage, data, settingsChanged = false) {
+export function save(storage, data, settingsChanged = false) {
   data.revision = crypto.randomUUID();
   if (settingsChanged) data.settingsRevision = crypto.randomUUID();
   storage.setItem(libraryKey, JSON.stringify(data));
@@ -206,6 +221,14 @@ function display(record) {
   const source = {id: record.id, title: record.title, summary: section(record.body, 'Summary') || record.youtubeAuthor || '', category: record.category, collection: record.collection,
     collections: record.collections, tags: [], addedAt: record.createdAt, updatedAt: record.updatedAt, url: record.url, urls: [record.url],
     path: `entries/${record.id}.md`, sourceType: 'note', images: [], attachments: [], fullText: record.body, relatedIds: []};
+  if (record.canonical) {
+    source.tags = record.tags;
+    source.relatedIds = record.relatedIds;
+    source.urls = record.urls;
+    const files = record.sourcePaths.map(path => ({path, title:path.split('/').at(-1)}));
+    source.images = files.filter(file => /\.(png|webp|jpe?g|gif)$/i.test(file.path));
+    source.attachments = files.filter(file => !source.images.includes(file));
+  }
   if (record.image) {
     const path = 'sources/' + record.id + '/image.' + record.image.slice(11,record.image.indexOf(';'));
     imagePaths.set(path, record.image);
@@ -260,7 +283,7 @@ async function enrichYouTubeTitle(storage, nativeFetch, source) {
     const result = await response.json();
     const title = metadataText(result.title);
     if (!title) return;
-    await writeLibrary(() => {
+    await writeLibrary(storage, () => {
       const data = load(storage);
       const current = data.items.find(item => item.id === source.id);
       if (!current || current.trashed || current.url !== source.url || current.title !== source.title) return;
@@ -392,18 +415,18 @@ export function createLocalFetch(storage, nativeFetch, base = appBase) {
       const raw = init.body ?? (input instanceof Request ? await input.text() : '');
       if (route === '/api/restore') {
         if (typeof raw !== 'string' || raw.length > 8_000_000) throw new LocalError('Choose a smaller browser-library backup.');
-        return json(await writeLibrary(() => restore(storage, raw)));
+        return json(await writeLibrary(storage, () => restore(storage, raw)));
       }
       const data = JSON.parse(raw);
       if (!object(data)) throw new LocalError('Expected a JSON object.');
       if (route === '/api/items') {
-        const result = await writeLibrary(() => capture(storage, data));
+        const result = await writeLibrary(storage, () => capture(storage, data));
         if (result.created && !data.image && !data.title?.trim()) void enrichYouTubeTitle(storage, nativeFetch, result.source);
         return json(result, result.created ? 201 : 200);
       }
-      if (route === '/api/collections' || route === '/api/collection-icon') return json(await writeLibrary(() => saveCollection(storage, data, route.endsWith('icon'))));
+      if (route === '/api/collections' || route === '/api/collection-icon') return json(await writeLibrary(storage, () => saveCollection(storage, data, route.endsWith('icon'))));
       const itemRoute = /^\/api\/items\/([0-9a-f-]{36})$/.exec(route);
-      if (itemRoute) return json(await writeLibrary(() => edit(storage, itemRoute[1], data)));
+      if (itemRoute) return json(await writeLibrary(storage, () => edit(storage, itemRoute[1], data)));
       return json({error: 'This feature is unavailable in the browser library.'}, 404);
     } catch (error) {
       if (error instanceof LocalError) return json({error: error.message}, error.status);
@@ -423,11 +446,40 @@ function markdown(storage, path) {
 
 if (typeof window !== 'undefined') {
   // Access the browser storage only when requested, so permission errors reach the viewer.
-  const storage = {getItem: key => localStorage.getItem(key), setItem: (key, value) => localStorage.setItem(key, value)};
-  window.inntakeLocalFetch = createLocalFetch(storage, window.fetch.bind(window));
+  let storage = {getItem: () => null};
+  const assets = new Map();
+  let loadedAssets;
+  async function loadAssets() {
+    const state = await readValue('state', 'assets');
+    if (!state || state.head === loadedAssets) return;
+    const mimeTypes = {jpg:'image/jpeg', jpeg:'image/jpeg', png:'image/png', gif:'image/gif', webp:'image/webp', pdf:'application/pdf', md:'text/plain', txt:'text/plain', json:'text/plain'};
+    await Promise.all(Object.entries(state.paths).map(async ([path, sha]) => {
+      if (assets.get(path)?.sha === sha) return;
+      const bytes = await readValue('blobs', sha);
+      if (!bytes) return;
+      const extension = path.split('.').at(-1).toLowerCase();
+      const type = Object.hasOwn(mimeTypes, extension) ? mimeTypes[extension] : 'application/octet-stream';
+      if (assets.has(path)) URL.revokeObjectURL(assets.get(path).url);
+      assets.set(path, {sha, url:URL.createObjectURL(new Blob([bytes], {type}))});
+    }));
+    for (const [path, asset] of assets) if (!Object.hasOwn(state.paths, path)) {
+      URL.revokeObjectURL(asset.url);
+      assets.delete(path);
+    }
+    loadedAssets = state.head;
+  }
+  window.inntakeLocalFetch = async (input, init) => {
+    try {
+      const view = await libraryView();
+      storage = view;
+      if (input === '/api/catalog') await loadAssets();
+      return await createLocalFetch(view, window.fetch.bind(window))(input, init);
+    } catch (error) { return json({error: error.message || 'Could not open browser storage.'}, 500); }
+  };
   const documents = new Map();
   window.inntakeLocalMarkdownUrl = path => {
     try {
+      if (assets.has(path)) return assets.get(path).url;
       if (imagePaths.has(path)) {
         const cached = documents.get(path);
         if (cached) return cached.url;

@@ -1,6 +1,8 @@
 // Browser-only entry point. The adapter is evaluated before the shared viewer.
 import './viewer-storage.js';
 import './viewer.js';
+import './github-ui.js';
+import './github-mounts.js';
 
 const backup = document.querySelector('#backup-download');
 const restore = document.querySelector('#backup-restore');

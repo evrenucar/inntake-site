@@ -9,7 +9,7 @@
   <meta name="theme-color" content="#1b1b1a">
   <meta name="description" content="Save links and notes in your own Inntake library.">
   <meta name="referrer" content="strict-origin-when-cross-origin">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' blob: https://www.youtube.com/oembed; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; frame-src https://www.youtube.com; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' blob: https://www.youtube.com/oembed https://api.github.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; frame-src https://www.youtube.com; object-src 'none'; base-uri 'none'; form-action 'none'">
   <link rel="icon" href="./icon-192.png">
   <link rel="apple-touch-icon" href="./icon-192.png">
   <link rel="manifest" href="./manifest.webmanifest">
@@ -921,6 +921,15 @@ body.compact-navigation .ambient div { width: 120vw; }
         <div id="youtube-preview-results" hidden></div>
       </form>
     </details>
+    <details id="github-sync-panel"><summary>Private GitHub sync</summary>
+      <label class="field">Repository<input name="repository" placeholder="owner/repository" autocapitalize="none" spellcheck="false" autocomplete="off"></label>
+      <label class="field">Data branch<input name="branch" value="inntake-library" autocapitalize="none" spellcheck="false" autocomplete="off"></label>
+      <label class="field">Access token<input name="token" type="password" autocomplete="off" autocapitalize="none" spellcheck="false"></label>
+      <p class="hint">Sync all items in this library. Use a <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener noreferrer">fine-grained token</a> for this repository. Choose Contents read and write to save changes. The token stays in this tab until you close or reload it.</p>
+      <div class="github-conflicts"></div>
+      <button type="button">Sync now</button><p class="hint" role="status" aria-live="polite"></p>
+    </details>
+    <div id="github-mounts"></div>
     <h3>Back up your library</h3>
     <p class="hint">This library is saved in this browser. Keep a JSON backup to move it to another device.</p>
     <a id="backup-download" href="#backup-download" download>Download JSON backup</a>
