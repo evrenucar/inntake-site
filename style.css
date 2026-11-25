@@ -46,7 +46,8 @@ canvas, .scene-art { image-rendering: pixelated; }
 .cabinet-space { grid-area: cabinet; align-items: end; margin: 0 clamp(10px, 2.8vw, 85px) 0 clamp(6px, 1.6vw, 33px); }
 .cabinet {
   position: relative;
-  --cabinet-width: min(100cqw, 140cqh, 58rem);
+  /* Match the cabinet in the 390px portrait layout; spare width belongs to the room. */
+  --cabinet-width: min(374.4px, 100cqw, 140cqh);
   width: var(--cabinet-width);
   height: calc(var(--cabinet-width) * 17 / 24);
   container-type: inline-size;
