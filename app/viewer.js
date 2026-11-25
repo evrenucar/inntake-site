@@ -286,6 +286,7 @@ function collectionIconNode(name, override = undefined) {
   const spec = value.startsWith('icon:') ? iconPaths[value.slice(5)] : value.startsWith('lucide:') && !lucide ? iconPaths.folder : null;
   if (!spec && !lucide) { const node = element('span', 'collection-icon', value); node.setAttribute('aria-hidden', 'true'); return node; }
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.dataset.icon = value;
   svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('class', 'collection-icon');
   svg.setAttribute('fill', 'none'); svg.setAttribute('stroke', 'currentColor'); svg.setAttribute('stroke-width', '1.7');
   svg.setAttribute('stroke-linecap', 'round'); svg.setAttribute('stroke-linejoin', 'round'); svg.setAttribute('aria-hidden', 'true');
@@ -363,6 +364,31 @@ const palettes = {
   violet: ['#1a1723', '#27222e', '#c4b2e2', '#5c3d7b', '#354c73', '#68424f'],
   graphite: ['#191b1c', '#242728', '#c1c9cc', '#41484d', '#444b43', '#4a4149']
 };
+// Add a style here and its scoped paint rules in index.html. Palette slots are
+// background, card, accent, then three ambient colours. Stored collection icons
+// and colour choices stay independent of the browser's interface preference.
+const libraryStyles = {
+  original: {label: 'Original'},
+  simple: {label: 'Pixelated Simple', palette: ['#191733','#282442','#75eee0','#333272','#512c65','#1b555a']},
+  inn: {label: 'Pixelated Inn', palette: ['#231b17','#342924','#efbe76','#66472b','#3f4c33','#50343b']},
+  phosphor: {label: 'Phosphor Terminal', palette: ['#0b1511','#11221b','#98efa4','#204836','#273c26','#17403a']}
+};
+const styleKey = 'inntake-library-style';
+const stylePicker = $('#library-style');
+for (const [value, style] of Object.entries(libraryStyles)) stylePicker.add(new Option(style.label, value));
+function selectLibraryStyle(value) {
+  const id = Object.hasOwn(libraryStyles, value) ? value : 'original';
+  document.documentElement.dataset.libraryStyle = id;
+  stylePicker.value = id;
+  applyAppearance();
+}
+stylePicker.addEventListener('change', () => {
+  selectLibraryStyle(stylePicker.value);
+  try { localStorage.setItem(styleKey, stylePicker.value); } catch {}
+});
+window.addEventListener('storage', event => {
+  if (event.key === styleKey || event.key === null) selectLibraryStyle(event.newValue);
+});
 function appearanceFor(name) {
   const path = collectionPath(name);
   for (const ancestor of [...path].reverse()) {
@@ -373,6 +399,20 @@ function appearanceFor(name) {
 function paletteFor(name, appearance = appearanceFor(name)) {
   const index = [...(appearance.seed || name)].reduce((value, char) => ((value * 31 + char.codePointAt(0)) >>> 0), 0) % 4;
   const palette = [...(palettes[appearance.theme === 'auto' ? ['moss', 'ocean', 'ember', 'violet'][index] : appearance.theme] || palettes.moss)];
+  const style = libraryStyles[stylePicker.value];
+  if (style?.palette) {
+    // Keep named collections recognisable within each style. Explicit custom
+    // glows below remain exact hex colours for the collection colour picker.
+    for (let i = 0; i < palette.length; i++) {
+      const base = style.palette[i];
+      if (!name) { palette[i] = base; continue; }
+      const weight = i < 2 ? .18 : .40;
+      palette[i] = '#' + [1,3,5].map(start => {
+        const channel = hex => parseInt(hex.slice(start, start+2),16);
+        return Math.round(channel(base)*(1-weight) + channel(palette[i])*weight).toString(16).padStart(2,'0');
+      }).join('');
+    }
+  }
   if (appearance.colors) palette.splice(3, 3, ...appearance.colors);
   return palette;
 }
@@ -2324,6 +2364,9 @@ $('#reload-entry').addEventListener('click', async () => {
     render();
   } catch (error) { $('#save-status').textContent = error.message; }
 });
+let initialStyle;
+try { initialStyle = localStorage.getItem(styleKey); } catch {}
+selectLibraryStyle(initialStyle);
 loadIconLibrary();
 loadCatalog();
 if (browserLocalViewer) {

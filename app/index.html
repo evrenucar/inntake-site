@@ -562,6 +562,63 @@ body.compact-navigation .ambient div { width: 120vw; }
       #table-wrap td[data-empty] { display: none; }
     }
     [hidden] { display: none !important; }
+    /* Style contract: define readable ink, muted ink, borders, icon treatment
+       and surface finishes. Leave dimensions, breakpoints and hit areas shared. */
+    :root[data-library-style="simple"] {
+      --ink:#f5f2ff; --muted:#c0b9dd; --line:#565074; --corner:2px;
+      --display:ui-monospace,monospace; --edge:3px 3px 0 #100d22;
+      --pattern:radial-gradient(#b2a9ff21 1px, transparent 1px) 0 0 / 12px 12px;
+    }
+    :root[data-library-style="inn"] {
+      --ink:#fff0d2; --muted:#d7bd9d; --line:#735639; --corner:5px;
+      --display:Georgia,serif; --edge:inset 0 2px #a37c472f, 2px 3px 0 #19120f;
+      --pattern:repeating-linear-gradient(0deg, transparent 0 47px, #130d0925 48px 49px);
+    }
+    :root[data-library-style="phosphor"] {
+      --ink:#cdf5d8; --muted:#98bdaa; --line:#38624c; --corner:0px;
+      --display:ui-monospace,monospace; --edge:inset 2px 0 #598c65;
+      --pattern:repeating-linear-gradient(0deg,transparent 0 3px,#47906512 3px 4px);
+    }
+    :root[data-library-style]:not([data-library-style="original"]) {
+      accent-color:var(--accent);
+      & body { background:var(--pattern),var(--background); }
+      & body > .ambient { opacity:.42; }
+      & #library-sidebar { background:var(--pattern),color-mix(in srgb,var(--background) 85%,var(--card)); }
+      & :is(.library-brand,h1,h2,h3) { font-family:var(--display); }
+      & :is(.card, dialog, .filter-panel, .collection-menu-options, #editor, #table-wrap) {
+        background-color:var(--card); border-color:var(--line); border-radius:var(--corner); box-shadow:var(--edge);
+      }
+      & :is(button,input,select,textarea,.view-switch,.card-actions-menu summary,.collection-row,.collection-chip) { border-radius:var(--corner); }
+      & :is(.card:hover,:focus-visible) { outline-color:var(--accent); border-color:var(--accent); }
+      & :is(#collection-tree,#library-sidebar) .collection-row.selected,
+      & .view-switch button[aria-pressed="true"] { background:color-mix(in srgb,var(--accent) 14%,var(--card)); }
+      & :is(.collection-icon,.collection-row.has-children .collection-icon) { color:var(--accent); }
+      & svg.collection-icon { stroke-linecap:square; stroke-linejoin:miter; }
+      & #image-viewer { background:var(--background); }
+      & .viewer-toolbar :is(button,a) { color:var(--ink); background:var(--card); border-color:var(--line); }
+      & :is(#viewer-help,#viewer-scale,#viewer-caption) { color:var(--muted); }
+      & ::selection { background:var(--accent); color:var(--background); }
+    }
+    :root:is([data-library-style="simple"],[data-library-style="inn"]) svg.collection-icon {
+      shape-rendering:crispEdges; stroke-width:2;
+    }
+    :root[data-library-style="simple"] .library-brand { color:var(--accent); }
+    :root[data-library-style="inn"] .library-brand { color:#f1cd89; text-shadow:1px 2px #140c07; }
+    :root[data-library-style="inn"] .card {
+      background-image:linear-gradient(#c69a58,#c69a58),linear-gradient(#c69a58,#c69a58);
+      background-size:3px 3px; background-position:6px 6px,right 6px top 6px; background-repeat:no-repeat; }
+    :root[data-library-style="phosphor"] :is(.library-brand,h1) { color:var(--accent); text-shadow:0 0 9px #70ffa128; }
+    :root[data-library-style="phosphor"] svg.collection-icon { stroke-width:1.4; filter:drop-shadow(0 0 2px #75d79565); }
+    /* Theme glyphs occupy the same 24-unit viewBox as the original icons. */
+    :root:is([data-library-style="simple"],[data-library-style="inn"]) {
+      & [data-icon="icon:folder"] path { d:path("M3 7H5V5H10V7H13V9H21V19H19V21H3Z M5 11H19"); }
+      & [data-icon="icon:grid"] path { d:path("M3 3H9V9H3Z M15 3H21V9H15Z M3 15H9V21H3Z M15 15H21V21H15Z"); }
+      & [data-icon="icon:note"] path { d:path("M5 3H15V5H17V7H19V21H5Z M9 11H15 M9 15H15"); }
+      & [data-icon="icon:book"] path { d:path("M2 5H8V6H10V7H12V6H14V5H22V18H15V19H13V20H11V19H9V18H2Z M12 8V18"); }
+    }
+    :root[data-library-style="inn"] [data-icon="icon:grid"] path {
+      d:path("M3 4H21V20H3Z M3 12H21 M6 7V10 M9 6V10 M14 7H18V10H14Z M6 15H10V18H6Z M14 15V18 M18 14V18");
+    }
   </style>
 </head>
 <body>
@@ -657,6 +714,7 @@ body.compact-navigation .ambient div { width: 120vw; }
   <dialog id="settings-dialog" aria-labelledby="settings-title">
     <button id="settings-close" class="close" aria-label="Close settings">×</button>
     <h2 id="settings-title">Settings</h2>
+    <label class="field">Library style<select id="library-style"></select></label>
     <button id="refresh" title="Refresh library">Refresh library</button>
     <p class="hint">New captures appear automatically.</p>
     <details id="youtube-preview-panel" hidden>
