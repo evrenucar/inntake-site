@@ -10,7 +10,10 @@
   <meta name="description" content="Save links and notes in your own Inntake library.">
   <meta name="referrer" content="strict-origin-when-cross-origin">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' blob: https://www.youtube.com/oembed https://api.github.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; frame-src https://www.youtube.com; object-src 'none'; base-uri 'none'; form-action 'none'">
-  <style>#settings-open[data-sync-attention="true"]::after { content: ""; display:inline-block; width:0.45em; height:0.45em; margin-left:0.35em; border-radius:50%; background:var(--accent); }</style>
+  <style>#settings-open[data-sync-attention="true"]::after { content: ""; display:inline-block; width:0.45em; height:0.45em; margin-left:0.35em; border-radius:50%; background:var(--accent); }
+    #github-sync-panel .check { display:flex; align-items:center; gap:10px; min-height:44px; color:var(--ink); cursor:pointer; }
+    #github-sync-panel .check input { appearance:auto; width:20px; height:20px; flex:none; margin:0; padding:0; accent-color:var(--accent); }
+  </style>
   <link rel="icon" href="./icon-192.png">
   <link rel="apple-touch-icon" href="./icon-192.png">
   <link rel="manifest" href="./manifest.webmanifest">
@@ -926,10 +929,10 @@ body.compact-navigation .ambient div { width: 120vw; }
       <label class="field">Repository<input name="repository" placeholder="owner/repository" autocapitalize="none" spellcheck="false" autocomplete="off"></label>
       <label class="field">Data branch<input name="branch" value="inntake-library" autocapitalize="none" spellcheck="false" autocomplete="off"></label>
       <label class="field">Access token<input name="token" type="password" autocomplete="off" autocapitalize="none" spellcheck="false"></label>
-      <label><input name="remember" type="checkbox"> Remember token on this device</label>
+      <label class="check"><input name="remember" type="checkbox"> Remember token on this device</label>
       <p class="hint">Sync all items in this library. Use a <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener noreferrer">fine-grained token</a> for this repository. Choose Contents read and write to save changes.</p>
       <div class="github-conflicts"></div>
-      <label><input name="automatic" type="checkbox" checked> Sync automatically</label>
+      <label class="check"><input name="automatic" type="checkbox" checked> Sync automatically</label>
       <button type="button" id="github-sync-now">Sync now</button><button type="button" id="github-forget" hidden>Disconnect</button><p class="hint" role="status" aria-live="polite"></p>
     </details>
     <div id="github-mounts"></div>
