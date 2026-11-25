@@ -2194,6 +2194,74 @@ captureForm.addEventListener('submit', event => {
   else saveLinkCapture({id: crypto.randomUUID(), ...fields});
 });
 
+async function readCaptureImage(file) {
+  // Keep large photos practical within browser storage. Preserve animation in GIFs.
+  if (browserLocalViewer && typeof createImageBitmap === 'function' && file.size > 600000 && ['image/png','image/jpeg'].includes(file.type)) {
+    const bitmap = await createImageBitmap(file);
+    try {
+      const scale = Math.min(1, 1800 / Math.max(bitmap.width, bitmap.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1,Math.round(bitmap.width*scale));
+      canvas.height = Math.max(1,Math.round(bitmap.height*scale));
+      canvas.getContext('2d').drawImage(bitmap,0,0,canvas.width,canvas.height);
+      const compact = canvas.toDataURL('image/webp',.88);
+      if (compact.length < file.size*4/3) return compact;
+    } finally { bitmap.close(); }
+  }
+  if (file.size > 12*1024*1024) throw new Error('Choose an image smaller than 12 MB.');
+  return new Promise((resolve,reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error('Could not read this image.'));
+    reader.readAsDataURL(file);
+  });
+}
+async function captureImages(files, collection) {
+  if (captureSaving) { actionStatus('A save is in progress. Try again in a moment.'); return; }
+  beginCapture('Saving image…',true);
+  let saved = 0, errorMessage = '';
+  try {
+    for (const file of files) {
+      if (!['image/png','image/jpeg','image/webp','image/gif'].includes(file.type)) throw new Error('Choose a PNG, JPEG, GIF or WebP image.');
+      const image = await readCaptureImage(file);
+      const response = await libraryFetch('/api/items',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({id:crypto.randomUUID(),title:(file.name || 'Pasted image').slice(0,200),image,collection})});
+      if (!response.ok) throw new Error((await response.json()).error || 'Image save failed.');
+      saved++;
+    }
+  } catch (error) { errorMessage = error.message; }
+  finally { endCapture(); }
+  if (saved) await loadCatalog(true);
+  if (errorMessage) actionStatus((saved ? saved+' saved. ' : '')+errorMessage);
+  else successStatus(saved===1 ? 'Image saved.' : saved+' images saved.');
+}
+function transferredImages(data) {
+  return Array.from(data?.files || []).filter(file => file.type.startsWith('image/'));
+}
+function imageCaptureEnabled() {
+  return libraryId && !document.querySelector('dialog[open]') && $('#archive-filter').value !== 'trash';
+}
+document.addEventListener('paste', event => {
+  if (!imageCaptureEnabled() || (event.target !== search && event.target.closest('input,textarea,[contenteditable=true]'))) return;
+  const files = transferredImages(event.clipboardData);
+  if (!files.length) return;
+  event.preventDefault();
+  captureImages(files,$('#collection-filter').value);
+},true);
+document.addEventListener('dragover', event => {
+  if (event.dataTransfer?.types.includes('Files')) event.preventDefault();
+},true);
+document.addEventListener('drop', event => {
+  if (!event.dataTransfer?.types.includes('Files')) return;
+  event.preventDefault();
+  if (!imageCaptureEnabled()) return;
+  const files = transferredImages(event.dataTransfer);
+  if (!files.length) { actionStatus('Drop an image file here.'); return; }
+  event.stopPropagation();
+  const target = event.target.closest('[data-drop-collection]');
+  captureImages(files,target?.dataset.dropCollection ?? $('#collection-filter').value);
+},true);
+
 $('#capture-paste').addEventListener('click', async () => {
   if (captureSaving || captureReading) return;
   restorePendingCapture();
@@ -2202,9 +2270,17 @@ $('#capture-paste').addEventListener('click', async () => {
   captureReading = true;
   let text = '';
   try {
-    const reading = navigator.clipboard?.readText();
     updateCaptureButtons();
-    text = await reading || '';
+    if (navigator.clipboard?.read) {
+      const items = await navigator.clipboard.read();
+      const images = [];
+      for (const item of items) {
+        const type = item.types.find(t => ['image/png','image/jpeg','image/gif','image/webp'].includes(t));
+        if (type) images.push(await item.getType(type));
+        else if (item.types.includes('text/plain')) text += await (await item.getType('text/plain')).text();
+      }
+      if (images.length) { await captureImages(images,collection); return; }
+    } else text = await navigator.clipboard?.readText() || '';
   } catch {
     // Safari can require a native paste gesture even when a URL is copied.
   } finally {
@@ -2215,7 +2291,7 @@ $('#capture-paste').addEventListener('click', async () => {
   const url = clipboardLink(text);
   if (!url) {
     search.focus(); search.select();
-    actionStatus('Paste one link here, then tap Add link.');
+    actionStatus('Paste an image here, or paste a link and choose Add link.');
     return;
   }
   await quickCapture(url, collection);
@@ -2281,7 +2357,7 @@ async function loadCatalog(manual = false) {
   } catch (error) {
     if (!catalogVersion) count.textContent = 'Library unavailable';
     actionStatus(error.message);
-  } finally { loading = false; }
+  } finally { loading = false; window.dispatchEvent(new Event('inntake-viewer-ready')); }
 }
 
 $('#refresh').addEventListener('click', () => loadCatalog(true));

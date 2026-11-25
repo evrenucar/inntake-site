@@ -92,7 +92,7 @@ function withSection(body, heading, contents) {
 }
 
 function newBody(title, note, url) {
-  return `${withSection(`# ${title}\n`, 'User notes', note).trimEnd()}\n\n## Sources and provenance\n<${url}>\n`;
+  return `${withSection(`# ${title}\n`, 'User notes', note).trimEnd()}\n\n## Sources and provenance\n${url ? '<'+url+'>' : 'Image saved from browser'}\n`;
 }
 
 function validatedAppearance(value) {
@@ -125,10 +125,18 @@ function assertHierarchy(parents) {
   }
 }
 
+function imageData(value) {
+  if (!value) return '';
+  if (typeof value !== 'string' || value.length > 16800000 || !/^data:image\/(png|jpeg|gif|webp);base64,[A-Za-z0-9+/]+=*$/.test(value)) throw new LocalError('Invalid image data.');
+  return value;
+}
+const imagePaths = new Map();
+
 function normalizeRecord(value) {
   if (!object(value) || typeof value.id !== 'string' || !uuid.test(value.id)) throw new LocalError('The browser library has an invalid item.');
-  const url = address(value.url);
-  const title = field(value.title, 200, 'An item title is invalid.').trim() || new URL(url).hostname;
+  const image = imageData(value.image);
+  const url = image ? '' : address(value.url);
+  const title = field(value.title, 200, 'An item title is invalid.').trim() || (image ? 'Saved image' : new URL(url).hostname);
   const primary = value.collection || '';
   const collections = names(value.collections ?? (primary ? [primary] : []));
   const createdAt = value.createdAt;
@@ -140,6 +148,7 @@ function normalizeRecord(value) {
     updatedAt: typeof value.updatedAt === 'string' && Number.isFinite(Date.parse(value.updatedAt)) ? value.updatedAt : createdAt,
     body, category: category(value.category ?? ''), impact, core: value.core === true, archived: value.archived === true, trashed: value.trashed === true,
     revision: typeof value.revision === 'string' ? value.revision : `legacy-${value.id}`};
+  if (image) record.image = image;
   if (typeof value.captureHash === 'string') record.captureHash = value.captureHash;
   if (metadataText(value.youtubeAuthor)) record.youtubeAuthor = metadataText(value.youtubeAuthor);
   return record;
@@ -197,6 +206,11 @@ function display(record) {
   const source = {id: record.id, title: record.title, summary: section(record.body, 'Summary') || record.youtubeAuthor || '', category: record.category, collection: record.collection,
     collections: record.collections, tags: [], addedAt: record.createdAt, updatedAt: record.updatedAt, url: record.url, urls: [record.url],
     path: `entries/${record.id}.md`, sourceType: 'note', images: [], attachments: [], fullText: record.body, relatedIds: []};
+  if (record.image) {
+    const path = 'sources/' + record.id + '/image.' + record.image.slice(11,record.image.indexOf(';'));
+    imagePaths.set(path, record.image);
+    source.images = [{path, title:record.title}]; source.sourceType = 'image'; source.urls = [];
+  }
   return {item, source, warning: null};
 }
 
@@ -209,13 +223,14 @@ function catalog(data) {
 
 async function capture(storage, input) {
   if (typeof input.id !== 'string' || !uuid.test(input.id)) throw new LocalError('A valid capture ID is required.');
-  const url = address(input.url);
+  const image = imageData(input.image);
+  const url = image ? '' : address(input.url);
   const enteredTitle = field(input.title ?? '', 200, 'Use a shorter title.').trim();
-  const title = enteredTitle || fallbackTitle(url);
+  const title = enteredTitle || (image ? 'Saved image' : fallbackTitle(url));
   const note = field(input.note ?? '', 20000, 'Use a shorter note.').trim();
   const collection = field(input.collection ?? '', 100, 'Choose an existing collection.').trim();
   const kind = category(input.category ?? '');
-  const bytes = new TextEncoder().encode(JSON.stringify([url, enteredTitle || new URL(url).hostname, note, collection, kind]));
+  const bytes = new TextEncoder().encode(JSON.stringify([image || url, enteredTitle || (image ? title : new URL(url).hostname), note, collection, kind]));
   const captureHash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), byte => byte.toString(16).padStart(2, '0')).join('');
   const data = load(storage);
   const previous = data.items.find(item => item.id === input.id);
@@ -225,7 +240,7 @@ async function capture(storage, input) {
   }
   if (collection && !data.collections.includes(collection)) throw new LocalError('Choose an existing collection or leave it blank.');
   const createdAt = new Date().toISOString();
-  const record = normalizeRecord({id: input.id, url, title, note, collection, category: kind, createdAt, revision: crypto.randomUUID(), captureHash});
+  const record = normalizeRecord({id: input.id, image, url, title, note, collection, category: kind, createdAt, revision: crypto.randomUUID(), captureHash});
   data.items.push(record);
   save(storage, data);
   return {created: true, ...display(record)};
@@ -383,7 +398,7 @@ export function createLocalFetch(storage, nativeFetch, base = appBase) {
       if (!object(data)) throw new LocalError('Expected a JSON object.');
       if (route === '/api/items') {
         const result = await writeLibrary(() => capture(storage, data));
-        if (result.created && !data.title?.trim()) void enrichYouTubeTitle(storage, nativeFetch, result.source);
+        if (result.created && !data.image && !data.title?.trim()) void enrichYouTubeTitle(storage, nativeFetch, result.source);
         return json(result, result.created ? 201 : 200);
       }
       if (route === '/api/collections' || route === '/api/collection-icon') return json(await writeLibrary(() => saveCollection(storage, data, route.endsWith('icon'))));
@@ -413,6 +428,16 @@ if (typeof window !== 'undefined') {
   const documents = new Map();
   window.inntakeLocalMarkdownUrl = path => {
     try {
+      if (imagePaths.has(path)) {
+        const cached = documents.get(path);
+        if (cached) return cached.url;
+        const [header, base64] = imagePaths.get(path).split(',');
+        const bytes = Uint8Array.from(atob(base64), char => char.charCodeAt(0));
+        const blob = new Blob([bytes], {type:header.slice(5,-7)});
+        const url = URL.createObjectURL(blob);
+        documents.set(path,{url});
+        return url;
+      }
       const body = markdown(storage, path);
       if (body === null) return null;
       const cached = documents.get(path);

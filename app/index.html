@@ -1,13 +1,15 @@
 <!doctype html>
-<html lang="en" data-browser-local>
+<html lang="en" data-inn-page="library" data-browser-local>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Reference library</title>
+  <link rel="stylesheet" href="./navigation.css">
+  <script src="./navigation.js"></script>
   <meta name="theme-color" content="#1b1b1a">
   <meta name="description" content="Save links and notes in your own Inntake library.">
   <meta name="referrer" content="strict-origin-when-cross-origin">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https://www.youtube.com/oembed; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; frame-src https://www.youtube.com; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' blob: https://www.youtube.com/oembed; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; frame-src https://www.youtube.com; object-src 'none'; base-uri 'none'; form-action 'none'">
   <link rel="icon" href="./icon-192.png">
   <link rel="apple-touch-icon" href="./icon-192.png">
   <link rel="manifest" href="./manifest.webmanifest">
@@ -816,7 +818,7 @@ body.compact-navigation .ambient div { width: 120vw; }
   <div class="library-layout">
   <aside id="library-sidebar" aria-label="Library navigation">
     <div id="navigation-divider" role="separator" aria-label="Resize collections sidebar" aria-orientation="vertical" tabindex="0"></div>
-    <a class="library-brand" href="./">Reference library<span>A place for your next idea.</span></a>
+    <a class="library-brand" href="../">Reference library<span>A place for your next idea.</span></a>
     <div class="sidebar-heading"><h2 id="collection-list-title">Collections</h2><button id="collection-new" aria-label="New collection" title="New collection">+</button></div>
     <div id="collection-all"></div>
     <nav id="collection-tree" aria-label="Collections and subcollections"></nav>
@@ -829,7 +831,7 @@ body.compact-navigation .ambient div { width: 120vw; }
       <div class="capture-desk">
       <div class="header-actions"><input id="search" type="search" placeholder="Search or paste a link…" aria-label="Search references or paste a link" autocomplete="off"><div id="current-collection-menu"></div></div>
         <label class="desk-destination">Collection <select id="collection-filter" aria-label="Browse and save to collection"><option value="">All items</option></select></label>
-      <div class="capture-actions" role="group" aria-label="Save links"><button id="trash-back" type="button" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5m7 7-7-7 7-7"/></svg>Back</button><button id="capture-paste" title="Save the link on your clipboard" disabled><svg class="work-glyph" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" shape-rendering="crispEdges" aria-hidden="true"><path d="M4 6h3V3h6v3h3v12H4z M8 6h4 M8 11h5 M8 14h4"/></svg>Paste &amp; save</button><button id="capture-open" disabled><svg class="work-glyph" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" shape-rendering="crispEdges" aria-hidden="true"><path d="M3 10h14 M10 3v14"/></svg>Add link</button><ul id="linked-playlists" aria-label="Linked playlists" hidden></ul></div>
+      <div class="capture-actions" role="group" aria-label="Save links"><button id="trash-back" type="button" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5m7 7-7-7 7-7"/></svg>Back</button><button id="capture-paste" title="Save the link or image on your clipboard" disabled><svg class="work-glyph" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" shape-rendering="crispEdges" aria-hidden="true"><path d="M4 6h3V3h6v3h3v12H4z M8 6h4 M8 11h5 M8 14h4"/></svg>Paste &amp; save</button><button id="capture-open" disabled><svg class="work-glyph" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" shape-rendering="crispEdges" aria-hidden="true"><path d="M3 10h14 M10 3v14"/></svg>Add link</button><ul id="linked-playlists" aria-label="Linked playlists" hidden></ul></div>
 
       </div>
     </header>
@@ -909,7 +911,7 @@ body.compact-navigation .ambient div { width: 120vw; }
     <h2 id="settings-title">Settings</h2>
     <fieldset class="style-picker"><legend>Library style</legend><div id="library-style"></div></fieldset>
     <button id="refresh" title="Refresh library">Refresh library</button>
-    <p class="hint">New captures appear automatically.</p>
+    <p class="hint">Paste or drop images into the library to save them in the current collection.</p>
     <details id="youtube-preview-panel" hidden>
       <summary>YouTube playlist</summary>
       <form id="youtube-preview-form">

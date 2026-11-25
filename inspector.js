@@ -2,7 +2,8 @@
   const room = document.querySelector('.room');
   const veil = room.querySelector('.room-veil');
   if (['localhost','127.0.0.1','[::1]'].includes(location.hostname)) {
-    room.querySelector('.library-entry').href = 'http://127.0.0.1:4295/';
+    const port = new URLSearchParams(location.search).get('library') === '4201' ? 4201 : 4295;
+    room.querySelector('.library-entry').href = 'http://127.0.0.1:' + port + '/';
   }
   const guide = document.querySelector('#guidebook');
   const viewer = document.querySelector('.inspect-dialog');
