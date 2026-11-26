@@ -589,55 +589,96 @@ function setupDropTarget(node, destination) {
     if (source) await changeItem(source, movePatch(source, destination));
   });
 }
+// Keep the held item's identity under the pointer, with drop targets reachable underneath.
+function liftDragPreview(node, name, visual, grip) {
+  const preview = $('#drag-feedback');
+  const label = element('strong', '', name), destination = element('small');
+  const caption = element('span', 'drag-caption');
+  caption.append(label, destination);
+  preview.replaceChildren();
+  if (visual) preview.append(visual.cloneNode(true));
+  preview.append(caption);
+  preview.hidden = false;
+  node.classList.add('drag-source');
+  const bounds = node.getBoundingClientRect();
+  const offsetX = (grip.x - bounds.left) / Math.max(1, bounds.width) * preview.offsetWidth;
+  const offsetY = (grip.y - bounds.top) / Math.max(1, bounds.height) * preview.offsetHeight;
+  return {
+    move(event, hint) {
+      preview.style.transform = `translate3d(${event.clientX - offsetX}px,${event.clientY - offsetY}px,0)`;
+      if (destination.textContent !== hint) destination.textContent = hint;
+    },
+    close() {
+      node.classList.remove('drag-source');
+      node.dataset.skipClick = 'true';
+      setTimeout(() => delete node.dataset.skipClick, 300);
+      preview.hidden = true;
+      preview.replaceChildren();
+    }
+  };
+}
 function setupCardDrag(card, source) {
   let start = null, target = null;
+  let preview = null, lastPoint = null, scrollFrame = 0;
   const targetAt = event => document.elementFromPoint(event.clientX, event.clientY)?.closest('[data-drop-collection], [data-drop-remove]');
+  function updateTarget(point) {
+    const next = targetAt(point);
+    if (target !== next) { target?.classList.remove('drop-target'); target = next; target?.classList.add('drop-target'); }
+    preview.move(point, next?.dataset.dropRemove ? 'Remove from this collection' : next ? `${point.altKey || !$('#collection-filter').value ? 'Add' : 'Move'} to ${next.dataset.dropCollection}` : '');
+  }
+  function scrollWhileHeld() {
+    scrollFrame = 0;
+    const scroller = navigationScrollerAt(lastPoint) || document.scrollingElement;
+    const bounds = scroller === document.scrollingElement ? {top: 0, bottom: window.innerHeight} : scroller.getBoundingClientRect();
+    const delta = lastPoint.clientY < bounds.top + 30 ? -7 : lastPoint.clientY > bounds.bottom - 30 ? 7 : 0;
+    const before = scroller.scrollTop;
+    if (delta) scroller.scrollTop += delta;
+    if (before !== scroller.scrollTop) {
+      updateTarget(lastPoint);
+      scrollFrame = requestAnimationFrame(scrollWhileHeld);
+    }
+  }
   const clear = () => {
+    cancelAnimationFrame(scrollFrame); scrollFrame = 0; lastPoint = null;
     document.body.classList.remove('dragging-card');
     document.querySelectorAll('.drop-target').forEach(node => node.classList.remove('drop-target'));
-    $('#drag-feedback').hidden = true; $('#remove-drop').hidden = true;
-    if (start && card.hasPointerCapture(start.pointerId)) card.releasePointerCapture(start.pointerId);
+    preview?.close(); preview = null; $('#remove-drop').hidden = true;
+    if (start?.capture.hasPointerCapture(start.pointerId)) start.capture.releasePointerCapture(start.pointerId);
     start = target = null; draggingItem = null;
     cancelCurrentDrag = null;
   };
   card.addEventListener('dragstart', event => event.preventDefault());
   card.addEventListener('pointerdown', event => {
-    if (event.button !== 0 || event.target.closest('a, input, textarea, select, iframe, summary, details') || (event.target.closest('button') && !event.target.closest('.drag-handle'))) return;
+    if (!event.isPrimary || event.button !== 0 || event.target.closest('a, input, textarea, select, iframe, summary, details') || (event.target.closest('button') && !event.target.closest('.drag-handle, .card-title'))) return;
     if (event.pointerType === 'touch' && !event.target.closest('.drag-handle')) return;
-    start = {x: event.clientX, y: event.clientY, pointerId: event.pointerId};
+    const capture = event.target.closest('button') || card;
+    start = {x: event.clientX, y: event.clientY, pointerId: event.pointerId, capture};
     cancelCurrentDrag = clear;
-    card.setPointerCapture(event.pointerId);
+    capture.setPointerCapture(event.pointerId);
   });
   card.addEventListener('pointermove', event => {
-    if (!start) return;
+    if (!start || event.pointerId !== start.pointerId) return;
     if (!draggingItem && Math.hypot(event.clientX - start.x, event.clientY - start.y) < 8) return;
-    draggingItem = source.id; document.body.classList.add('dragging-card');
-    $('#remove-drop').hidden = !$('#collection-filter').value;
-    const sidebar = navigationScrollerAt(event), bounds = sidebar?.getBoundingClientRect();
-    if (sidebar && event.clientX >= bounds.left && event.clientX <= bounds.right) {
-      if (event.clientY < bounds.top + 30) sidebar.scrollTop -= 18;
-      else if (event.clientY > bounds.bottom - 30) sidebar.scrollTop += 18;
+    if (!preview) {
+      draggingItem = source.id; document.body.classList.add('dragging-card');
+      preview = liftDragPreview(card, source.title || card.querySelector('.card-title')?.textContent || 'Untitled', card.querySelector('.card-media img:not([hidden])'), start);
     }
-    const next = targetAt(event);
-    if (target !== next) { target?.classList.remove('drop-target'); target = next; target?.classList.add('drop-target'); }
-    const feedback = $('#drag-feedback'); feedback.hidden = false;
-    feedback.style.left = Math.min(event.clientX + 16, window.innerWidth - 285) + 'px';
-    feedback.style.top = Math.min(event.clientY + 18, window.innerHeight - 65) + 'px';
-    feedback.textContent = next?.dataset.dropRemove ? 'Remove from this collection · keep saved' : next ? `${event.altKey || !$('#collection-filter').value ? 'Add' : 'Move'} to ${next.dataset.dropCollection}` : 'Drop onto a collection · Option / Alt keeps both';
+    $('#remove-drop').hidden = !$('#collection-filter').value;
+    lastPoint = event; updateTarget(event);
+    if (!scrollFrame) scrollFrame = requestAnimationFrame(scrollWhileHeld);
     event.preventDefault();
   });
   card.addEventListener('pointerup', async event => {
-    if (!start) return;
+    if (!start || event.pointerId !== start.pointerId) return;
     const wasDragging = draggingItem === source.id;
     const destination = wasDragging ? targetAt(event) : null;
     const patch = destination ? (destination.dataset.dropRemove ? removeFromViewPatch(source) : movePatch(source, destination.dataset.dropCollection, event.altKey)) : null;
     clear();
-    if (wasDragging) {
-      card.dataset.skipClick = 'true'; setTimeout(() => delete card.dataset.skipClick, 250);
-      if (patch) await changeItem(source, patch);
-    }
+    if (patch) await changeItem(source, patch);
   });
-  card.addEventListener('pointercancel', clear);
+  for (const type of ['pointercancel', 'lostpointercapture']) card.addEventListener(type, event => {
+    if (start?.pointerId === event.pointerId) clear();
+  });
 }
 let cancelCurrentDrag = null;
 document.addEventListener('keydown', event => {
@@ -743,7 +784,7 @@ async function moveCollection(name, target, position, restore = null) {
 }
 function setupCollectionDrag(row, name) {
   let start = null, destination = null, scrollFrame = null, lastPoint = null;
-  const tree = $('#collection-tree');
+  let preview = null;
   function targetAt(event) {
     const target = document.elementFromPoint(event.clientX, event.clientY)?.closest('[data-folder], [data-folder-root]');
     if (!target) return null;
@@ -757,17 +798,14 @@ function setupCollectionDrag(row, name) {
     if (start?.capture.hasPointerCapture(start.id)) start.capture.releasePointerCapture(start.id);
     start = null; draggingCollection = null; lastPoint = null;
     cancelAnimationFrame(scrollFrame); scrollFrame = null;
-    row.classList.remove('drag-source'); document.body.classList.remove('dragging-collection');
+    preview?.close(); preview = null; document.body.classList.remove('dragging-collection');
     document.querySelectorAll('.folder-before, .folder-after, .folder-inside').forEach(node => node.classList.remove('folder-before', 'folder-after', 'folder-inside'));
-    $('#drag-feedback').hidden = true; destination = null; cancelCurrentDrag = null;
+    destination = null; cancelCurrentDrag = null;
   }
   function updateTarget(event) {
     document.querySelectorAll('.folder-before, .folder-after, .folder-inside').forEach(node => node.classList.remove('folder-before', 'folder-after', 'folder-inside'));
     destination = targetAt(event); destination?.row.classList.add('folder-' + destination.position);
-    const feedback = $('#drag-feedback'); feedback.hidden = false;
-    feedback.style.left = Math.max(8, Math.min(event.clientX + 16, window.innerWidth - 285)) + 'px';
-    feedback.style.top = Math.max(8, Math.min(event.clientY + 16, window.innerHeight - 60)) + 'px';
-    feedback.textContent = !destination ? 'Drop between collections to reorder, or in the middle to nest' : !destination.name ? 'Move to top level' : `${destination.position === 'inside' ? 'Nest inside' : destination.position === 'before' ? 'Place before' : 'Place after'} ${destination.name}`;
+    preview.move(event, !destination ? '' : !destination.name ? 'Move to top level' : `${destination.position === 'inside' ? 'Nest inside' : destination.position === 'before' ? 'Place before' : 'Place after'} ${destination.name}`);
   }
   function autoscroll() {
     if (!draggingCollection || !lastPoint) return;
@@ -780,35 +818,35 @@ function setupCollectionDrag(row, name) {
   }
   row.addEventListener('dragstart', event => event.preventDefault());
   row.addEventListener('pointerdown', event => {
-    if (event.button !== 0 || organizing || event.target.closest('.collection-menu, .collection-toggle')) return;
+    if (!event.isPrimary || event.button !== 0 || organizing || event.target.closest('.collection-menu, .collection-toggle')) return;
     if (event.pointerType === 'touch' && !event.target.closest('.collection-icon')) return;
     const capture = event.target.closest('.collection-chip') || row;
     start = {x: event.clientX, y: event.clientY, id: event.pointerId, capture};
     capture.setPointerCapture(event.pointerId); cancelCurrentDrag = clear;
   });
   row.addEventListener('pointermove', event => {
-    if (!start) return;
+    if (!start || event.pointerId !== start.id) return;
     if (!draggingCollection && Math.hypot(event.clientX - start.x, event.clientY - start.y) < 8) return;
     if (!draggingCollection) {
-      draggingCollection = name; row.classList.add('drag-source'); document.body.classList.add('dragging-collection');
+      draggingCollection = name; document.body.classList.add('dragging-collection');
+      preview = liftDragPreview(row, name, row.querySelector('.collection-icon'), start);
       document.querySelectorAll('.collection-menu[open]').forEach(menu => menu.open = false);
       scrollFrame = requestAnimationFrame(autoscroll);
     }
     lastPoint = {clientX: event.clientX, clientY: event.clientY}; updateTarget(event); event.preventDefault();
   });
   row.addEventListener('pointerup', async event => {
-    if (!start) return;
+    if (!start || event.pointerId !== start.id) return;
     const wasDragging = draggingCollection === name, drop = wasDragging ? targetAt(event) : null;
     clear();
-    if (wasDragging) {
-      row.dataset.skipClick = 'true'; setTimeout(() => delete row.dataset.skipClick, 300);
-      if (drop) await moveCollection(name, drop.name, drop.position);
-    }
+    if (drop) await moveCollection(name, drop.name, drop.position);
   });
   row.addEventListener('click', event => {
     if (row.dataset.skipClick) { event.preventDefault(); event.stopImmediatePropagation(); }
   }, true);
-  row.addEventListener('pointercancel', clear);
+  for (const type of ['pointercancel', 'lostpointercapture']) row.addEventListener(type, event => {
+    if (start?.id === event.pointerId) clear();
+  });
   row.addEventListener('keydown', event => {
     if (!event.altKey || !['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key) || event.target.closest('.collection-menu, .collection-toggle')) return;
     event.preventDefault();
@@ -1533,13 +1571,13 @@ function renderCard(source) {
   }
   const meta = element('div', 'source');
   const host = webLink(source.url)?.hostname.replace(/^www\./, '');
-  const drag = element('button', 'drag-handle', '⠿'); drag.draggable = true; drag.setAttribute('aria-label', `Drag ${source.title}`); drag.title = 'Drag to a collection';
+  const drag = element('button', 'drag-handle', '⠿'); drag.setAttribute('aria-label', `Drag ${source.title}`); drag.title = 'Drag to a collection';
   meta.append(drag, element('span', '', videoId ? 'YouTube' : host || (source.images?.length ? 'Image' : 'Note')));
   if (item.core) meta.append(element('span', 'core-badge', 'Core'));
   if (!videoId && !source.images?.length) meta.append(externalButton(source));
   const heading = element('h2');
   const title = element('button', 'card-title', source.title || linkPreview?.title);
-  title.addEventListener('click', open);
+  title.addEventListener('click', () => { if (!card.dataset.skipClick) open(); });
   heading.append(title);
   const summary = source.summary?.replace(/!\[[^\]]*\]\([^)]*\)/g, '').trim() || linkPreview?.description;
   card.append(meta, heading);
