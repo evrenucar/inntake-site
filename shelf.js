@@ -247,7 +247,8 @@ async function mount() {
   }
   let hover = null, focus = null, pose = null, target = null;
   let box, roomBox, drag, raf = 0, lastAmbient = -Infinity, seconds = 0, tickFrame = 0;
-  let sliding = new Map();
+  const sliding = new Map();
+  let preview = null;
   const status = document.querySelector('#shelf-status');
   const active = () => pose?.id || hover || focus;
   const originalRow = id => initialRows[0].includes(id) ? 0 : 1;
@@ -291,16 +292,14 @@ async function mount() {
       hideHintTimer=setTimeout(hideHint,2500);
     },0);
   }
-  function layout() {
-    for (const [id,rect] of Object.entries(fixed)) spots[id] = rect.slice();
-    for(const [id,shape] of Object.entries(shapes)) if(!spots[id]) spots[id]=shape.source.slice();
-    order.forEach((all,row) => {
+  function shelfPositions(rows) {
+    const positions = Object.fromEntries(Object.entries(shapes).map(([id,shape])=>[id,shape.source]));
+    rows.forEach((all,row) => {
       const ids=visible(all);
       if (!ids.length) return;
       // Preserve exactly the artist's starting placement, including any gaps
       // from hidden stock, until this shelf's order actually changes.
       if (all.length === initialRows[row].length && all.every((id,i)=>id===initialRows[row][i])) {
-        ids.forEach(id=>spots[id]=shapes[id].source.slice());
         return;
       }
       const [left,right]=shelfEnds[row], gaps=ids.length-1;
@@ -313,10 +312,14 @@ async function mount() {
       let x=left+(right-left-total*fit-spacing*gaps)/2;
       ids.forEach(id=>{
         const [,oy,w,h]=shapes[id].source, scale=fit*pieceScale(id,row);
-        spots[id]=[x,surface[row]-(surface[originalRow(id)]-oy)*scale,w*scale,h*scale];
+        positions[id]=[x,surface[row]-(surface[originalRow(id)]-oy)*scale,w*scale,h*scale];
         x+=w*scale+spacing;
       });
     });
+    return positions;
+  }
+  function layout() {
+    Object.assign(spots,fixed,shelfPositions(order));
     for (const [id,[x,y,w,h]] of Object.entries(spots)) {
       const rail = id === 'field' || id === 'workshop';
       const left = rail ? 73 : x, top = rail ? y-55 : y;
@@ -363,7 +366,7 @@ async function mount() {
     }
   }
   function boundsAt(id,time) {
-    const goal=spots[id], slide=sliding.get(id);
+    const goal=preview?.positions[id] || spots[id], slide=sliding.get(id);
     if (!slide) return goal;
     const t=Math.min(1,(time-slide.start)/290);
     if (t>=1) { sliding.delete(id); return goal; }
@@ -596,47 +599,66 @@ async function mount() {
     }
     return best===id ? null : best;
   }
-  function arrange(id, move) {
+  function swapPlan(a,b) {
+    if (!b || a===b || stored[a] || stored[b]) return null;
+    const rows=order.map(row=>row.slice());
+    const ar=rowOf(a), br=rowOf(b), ai=rows[ar].indexOf(a), bi=rows[br].indexOf(b);
+    rows[ar][ai]=b; rows[br][bi]=a;
+    if (ar!==br) for (const r of [ar,br]) {
+      if (!hasRoomFor(visible(rows[r]),r,visible(order[r]))) return {full:r};
+    }
+    return {rows};
+  }
+  function shelfPlan(id,row,x) {
+    const source=rowOf(id);
+    if (source!==row && !fits([...visible(order[row]),id],row)) return {full:row};
+    const rows=order.map(ids=>ids.filter(key=>key!==id));
+    const next=rows[row].findIndex(key=>!stored[key] && x < spots[key][0]+spots[key][2]/2);
+    rows[row].splice(next<0 ? rows[row].length : next,0,id);
+    return {rows};
+  }
+  function pointerPlan(id,x,y) {
+    const place=placeAt(x,y);
+    const other=place ? null : movableAt(id,x,y);
+    const plan=isRail(place) ? shelfPlan(id,rails.indexOf(place),(x-box.left)*W/box.width)
+      : swapPlan(id,other);
+    return {place,other,plan};
+  }
+  // Keep hit boxes in their original slots until release. Moving a neighbour
+  // out from under a stationary finger must not undo the preview.
+  function showPlan(id,rows) {
+    const key=rows?.map(row=>row.join(',')).join('|');
+    if (preview?.key===key) return;
     const now=performance.now();
-    const old=Object.fromEntries(order.flat().map(key=>[key,boundsAt(key,now).slice()]));
-    move();
+    const from=Object.fromEntries(order.flat().map(k=>[k,boundsAt(k,now).slice()]));
+    preview=rows ? {key,positions:shelfPositions(rows)} : null;
+    sliding.clear();
+    if (!reduceMotion()) for (const k of order.flat()) {
+      const to=preview?.positions[k] || spots[k];
+      if (k!==id && !stored[k] && to.some((v,i)=>Math.abs(v-from[k][i])>.1)) sliding.set(k,{from:from[k],start:now});
+    }
+    repaint();
+  }
+  function commitPlan(id,plan) {
+    if (!plan?.rows) {
+      showPlan(id,null);
+      if (plan?.full!=null) capacityMessage(plan.full);
+      return;
+    }
+    const old=spots[id];
+    showPlan(id,plan.rows);
+    order.splice(0,order.length,...plan.rows);
     layout();
-    if (!reduceMotion()) {
-      for (const key of order.flat()) {
-        if (!stored[key] && key!==id && spots[key].some((v,i)=>Math.abs(v-old[key][i])>.1)) sliding.set(key,{from:old[key],start:now});
-      }
-    }
+    preview=null; // The saved layout now has the same targets as the preview.
     try { localStorage.setItem('inntake-shelf-order-v1',JSON.stringify(order)); } catch {}
-    const row = rowOf(id);
-    status.textContent = names[id][0]+' moved to '+names[rails[row]][0]+', position '+(order[row].indexOf(id)+1)+'.';
-    return {x:(spots[id][0]-old[id][0])*box.width/W,y:(spots[id][1]-old[id][1])*box.height/H};
-  }
-  function swap(a,b) {
-    if (!b || a===b) return;
-    const aRow=rowOf(a), bRow=rowOf(b), ai=order[aRow].indexOf(a), bi=order[bRow].indexOf(b);
-    if(stored[a] || stored[b]) return;
-    if(aRow!==bRow) {
-      for(const [row,outgoing,incoming] of [[aRow,a,b],[bRow,b,a]]) {
-        const old=visible(order[row]), next=old.map(id=>id===outgoing?incoming:id);
-        if(!hasRoomFor(next,row,old)) { capacityMessage(row); return; }
-      }
-    }
-    return arrange(a,()=>{ order[aRow][ai]=b; order[bRow][bi]=a; });
-  }
-  function placeOnShelf(id, row, x) {
-    const source=rowOf(id), origin = order[source];
-    if(source!==row && !fits([...visible(order[row]),id],row)) {capacityMessage(row);return;}
-    return arrange(id,()=>{
-      origin.splice(origin.indexOf(id),1);
-      const destination = order[row];
-      const next = destination.findIndex(key=>!stored[key] && x < spots[key][0] + spots[key][2]/2);
-      destination.splice(next < 0 ? destination.length : next, 0, id);
-    });
+    const row=rowOf(id);
+    status.textContent=names[id][0]+' moved to '+names[rails[row]][0]+', position '+(order[row].indexOf(id)+1)+'.';
+    return {x:(spots[id][0]-old[0])*box.width/W,y:(spots[id][1]-old[1])*box.height/H};
   }
   function nudge(id,direction) {
     const row=rowOf(id), ids=visible(order[row]), index=ids.indexOf(id);
-    if(direction==='left'||direction==='right') return swap(id,ids[index+(direction==='left'?-1:1)]);
-    if((row===0&&direction==='down')||(row===1&&direction==='up')) return placeOnShelf(id,1-row,spots[id][0]+spots[id][2]/2);
+    if(direction==='left'||direction==='right') return commitPlan(id,swapPlan(id,ids[index+(direction==='left'?-1:1)]));
+    if((row===0&&direction==='down')||(row===1&&direction==='up')) return commitPlan(id,shelfPlan(id,1-row,spots[id][0]+spots[id][2]/2));
   }
   controls.addEventListener('pointerover',event=>{
     if(event.pointerType==='touch'||pose?.dragging) return;
@@ -675,29 +697,29 @@ async function mount() {
       tuck(id,'unfiled');
     }
   });
-  controls.addEventListener('pointermove',event=>{
-    if (!pose?.dragging) return;
-    const place = placeAt(event.clientX,event.clientY);
-    target = place || movableAt(pose.id,event.clientX,event.clientY);
-    if (place) hint.textContent = (isRail(place) ? 'Place on ' : 'Put in drawer · ') + names[place][0];
-    hint.hidden = !place;
-    changeSelection();
-  });
   refreshStorage();
   layout(); resize();
   if (document.readyState!=='complete') window.addEventListener('load',updatePerches,{once:true});
   drag=window.createShelfDrag({root:controls,fullMotionPreview,getItem:b=>shapes[b.dataset.id] && !stored[b.dataset.id] ? b.dataset.id : null,
+    move:(id,x,y)=>{
+      const {place,other,plan}=pointerPlan(id,x,y);
+      target=place || other;
+      showPlan(id,plan?.rows);
+      if (place) hint.textContent=(isRail(place) ? 'Place on ' : 'Put in drawer · ')+names[place][0];
+      hint.hidden=!place;
+      changeSelection();
+    },
     drop:(id,x,y,keyboardTarget)=>{
-      if (keyboardTarget) return swap(id,keyboardTarget);
-      const place = placeAt(x,y);
-      if (isRail(place)) return placeOnShelf(id,rails.indexOf(place),(x-box.left)*W/box.width);
-      return place ? tuck(id,place,x) : swap(id,movableAt(id,x,y));
+      if (keyboardTarget) return commitPlan(id,swapPlan(id,keyboardTarget));
+      const {place,plan}=pointerPlan(id,x,y);
+      if (place && !isRail(place)) { showPlan(id,null); return tuck(id,place,x); }
+      return commitPlan(id,plan);
     }, nudge, render:value=>{
-      const wasHeld=pose?.dragging;
+      const heldId=pose?.dragging ? pose.id : null;
       pose=value;
-      if (Boolean(wasHeld)!==Boolean(value?.dragging)) updatePerches();
-      if (!wasHeld && value?.dragging) { hintSeen=true; hideHint(); }
-      if (wasHeld && !value?.dragging) { target=null; hover=null; hideHint(); }
+      if (Boolean(heldId)!==Boolean(value?.dragging)) updatePerches();
+      if (!heldId && value?.dragging) { hintSeen=true; hideHint(); }
+      if (heldId && !value?.dragging) { showPlan(heldId,null); target=null; hover=null; hideHint(); }
       cabinet.classList.toggle('is-dragging',Boolean(value?.dragging));
       changeSelection();
     }

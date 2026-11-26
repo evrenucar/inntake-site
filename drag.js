@@ -2,7 +2,7 @@
  * update slot positions and return the grabbed item's rest-box displacement in CSS
  * pixels. render(pose) draws that item about the grip inside its current rest box;
  * render(null) restores the normal scene. */
-window.createShelfDrag = function createShelfDrag({root, getItem, drop, nudge, render, fullMotionPreview = false}) {
+window.createShelfDrag = function createShelfDrag({root, getItem, move, drop, nudge, render, fullMotionPreview = false}) {
   const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
   const listeners = new AbortController();
   const options = {signal: listeners.signal};
@@ -140,6 +140,7 @@ window.createShelfDrag = function createShelfDrag({root, getItem, drop, nudge, r
       if (Math.hypot(dx, dy) < (event.pointerType === 'touch' ? 8 : 4)) return;
       makeBody(hand);
     }
+    move(hand.id,event.clientX,event.clientY);
     body.targetX = dx;
     body.targetY = dy;
     schedule();
@@ -181,6 +182,10 @@ window.createShelfDrag = function createShelfDrag({root, getItem, drop, nudge, r
 
   function keyDown(event) {
     const item = itemFor(event.target);
+    if (event.key === 'Escape' && hand?.pointerId != null) {
+      reset();
+      return;
+    }
     if (!item || hand?.pointerId != null) return;
     const direction = directions[event.key];
     if (direction && event.altKey && !hand) {
