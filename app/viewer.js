@@ -2473,8 +2473,29 @@ async function loadCatalog(manual = false) {
 }
 
 $('#refresh').addEventListener('click', () => loadCatalog(true));
-$('#settings-open').addEventListener('click', () => $('#settings-dialog').showModal());
-$('#settings-close').addEventListener('click', () => $('#settings-dialog').close());
+const settingsDialog = $('#settings-dialog');
+$('#settings-open').addEventListener('click', () => settingsDialog.showModal());
+$('#settings-close').addEventListener('click', () => settingsDialog.close());
+
+if (!('closedBy' in settingsDialog)) {
+  // Older browsers retarget backdrop events to the dialog, just like clicks on its padding.
+  const onBackdrop = event => {
+    if (event.target !== settingsDialog) return false;
+    const {left, right, top, bottom} = settingsDialog.getBoundingClientRect();
+    return event.clientX < left || event.clientX > right || event.clientY < top || event.clientY > bottom;
+  };
+  let pressedOutside = false;
+  settingsDialog.addEventListener('pointerdown', event => {
+    pressedOutside = event.isPrimary && event.button === 0 && onBackdrop(event);
+  });
+  for (const type of ['pointercancel', 'close']) {
+    settingsDialog.addEventListener(type, () => { pressedOutside = false; });
+  }
+  settingsDialog.addEventListener('click', event => {
+    if (pressedOutside && onBackdrop(event)) settingsDialog.close();
+    pressedOutside = false;
+  });
+}
 
 const macSync = $('#mac-sync');
 if (macSync) {

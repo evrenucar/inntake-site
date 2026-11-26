@@ -173,6 +173,11 @@
     #collection-breadcrumbs button { border: 0; padding: 3px; background: transparent; font-size: 12px; }
     #collection-dialog, #move-dialog, #settings-dialog, #capture-dialog, #link-playlist-dialog { width: min(440px, calc(100vw - 32px)); background: var(--card); color: var(--ink); border: 1px solid var(--line); border-radius: 14px; padding: 24px; }
     #collection-dialog::backdrop, #move-dialog::backdrop, #settings-dialog::backdrop, #link-playlist-dialog::backdrop { background: #0009; }
+    #settings-dialog { padding-top: 0; }
+    .settings-heading { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-block: 16px; background: var(--card); }
+    #settings-title { margin: 0; outline: none; }
+    #settings-close { display: grid; place-items: center; flex: 0 0 44px; height: 44px; padding: 0; user-select: none; }
+    #settings-close svg { pointer-events: none; }
     #settings-dialog p { line-height: 1.6; }
     #settings-dialog .hint { font-size: 13px; }
     #youtube-preview-panel { margin-top: 14px; }
@@ -937,9 +942,13 @@ body.compact-navigation .ambient div { width: 120vw; }
     <div id="image-stage" tabindex="0" aria-label="Image. Scroll to zoom, drag or use arrow keys to pan."><img id="viewer-image" alt="" draggable="false"></div>
     <div id="viewer-caption"></div>
   </dialog>
-  <dialog id="settings-dialog" aria-labelledby="settings-title">
-    <button id="settings-close" class="close" aria-label="Close settings">×</button>
-    <h2 id="settings-title">Settings</h2>
+  <dialog id="settings-dialog" aria-labelledby="settings-title" closedby="any">
+    <div class="settings-heading">
+      <h2 id="settings-title" tabindex="-1" autofocus>Settings</h2>
+      <button id="settings-close" type="button" aria-label="Close settings">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m4 4 8 8m0-8-8 8"/></svg>
+      </button>
+    </div>
     <fieldset class="style-picker"><legend>Library style</legend><div id="library-style"></div></fieldset>
     <button id="refresh" title="Refresh library">Refresh library</button>
     <p class="hint">Paste or drop images into the library to save them in the current collection.</p>
