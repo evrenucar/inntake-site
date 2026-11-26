@@ -287,6 +287,12 @@ function collectionIconNode(name, override = undefined) {
   if (!spec && !lucide) { const node = element('span', 'collection-icon', value); node.setAttribute('aria-hidden', 'true'); return node; }
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.dataset.icon = value;
+  if (name && override === undefined) {
+    const color = paletteFor(name)[3];
+    svg.dataset.collectionColor = '';
+    svg.style.setProperty('--icon-color', accentOn(color, '#49443f'));
+    svg.style.setProperty('--paper-icon-color', accentOn(color, '#d7c4a6'));
+  }
   svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('class', 'collection-icon');
   svg.setAttribute('fill', 'none'); svg.setAttribute('stroke', 'currentColor'); svg.setAttribute('stroke-width', '1.7');
   svg.setAttribute('stroke-linecap', 'round'); svg.setAttribute('stroke-linejoin', 'round'); svg.setAttribute('aria-hidden', 'true');
@@ -416,6 +422,7 @@ function paletteFor(name, appearance = appearanceFor(name)) {
     for (let i = 0; i < palette.length; i++) {
       const base = style.palette[i];
       if (!name) { palette[i] = base; continue; }
+      if (i === 3) continue; // The collection colour stays consistent across library styles.
       const weight = i < 2 ? .18 : .40;
       palette[i] = '#' + [1,3,5].map(start => {
         const channel = hex => parseInt(hex.slice(start, start+2),16);
@@ -500,14 +507,37 @@ motionPreference.addEventListener('change', updateInnLight);
 function glowSurface(base, color, amount) {
   return `color-mix(in srgb, ${base} ${100-amount}%, ${color})`;
 }
+// Keep the chosen colour when it reads clearly; otherwise move toward the
+// higher-contrast endpoint just far enough for small labels on this surface.
+function accentOn(hex, surface) {
+  const rgb = value => [1, 3, 5].map(i => parseInt(value.slice(i, i + 2), 16));
+  const luminance = values => values.reduce((sum, byte, i) => {
+    const n = byte / 255;
+    return sum + [0.2126, 0.7152, 0.0722][i] * (n <= 0.04045 ? n / 12.92 : ((n + 0.055) / 1.055) ** 2.4);
+  }, 0);
+  const bg = luminance(rgb(surface)), source = rgb(hex);
+  const end = bg < 0.179 ? 255 : 0;
+  for (let step = 0; step <= 20; step++) {
+    const channels = source.map(byte => Math.round(byte + (end - byte) * step / 20));
+    const fg = luminance(channels);
+    if ((Math.max(fg, bg) + 0.05) / (Math.min(fg, bg) + 0.05) >= 4.5)
+      return '#' + channels.map(byte => byte.toString(16).padStart(2, '0')).join('');
+  }
+  return end ? '#ffffff' : '#000000';
+}
 function applyAppearance() {
   const name = $('#collection-filter').value;
   const appearance = appearanceFor(name), palette = paletteFor(name, appearance);
+  document.documentElement.toggleAttribute('data-collection-active', Boolean(name));
+  if (name) {
+    palette[2] = accentOn(palette[3], '#49443f');
+    document.documentElement.style.setProperty('--paper-accent', accentOn(palette[3], '#d7c4a6'));
+  }
   for (const [index, variable] of ['--background', '--card', '--accent', '--glow-a', '--glow-b', '--glow-c'].entries()) document.documentElement.style.setProperty(variable, palette[index]);
   if (name && (appearance.colors || currentStyle === 'inn')) {
     const root = document.documentElement.style;
     root.setProperty('--background', glowSurface(glowSurface(palette[0], palette[3], 22), palette[4], 9));
-    root.setProperty('--card', glowSurface(palette[1], palette[5], 15));
+    root.setProperty('--card', glowSurface(palette[1], palette[3], 15));
   }
   document.body.classList.toggle('still-background', !appearance.motion);
   document.body.classList.toggle('motion-explicit', Boolean(appearance.motionOverride));
@@ -1032,6 +1062,9 @@ function refreshThemePreview(resetColors = false) {
   $('#collection-motion').disabled = !theme;
   const preview = $('#theme-preview'); preview.style.background = glowSurface(glowSurface(palette[0],palette[3],22),palette[4],9);
   ['--glow-a', '--glow-b', '--glow-c'].forEach((key, i) => preview.style.setProperty(key, palette[i + 3]));
+  const sample = $('#theme-preview-name');
+  sample.textContent = name || 'Collection';
+  sample.style.color = accentOn(palette[3], '#49443f');
   if (currentStyle === 'inn') {
     paintInnLight(preview.querySelector('.inn-rays'), palette.slice(3), 0);
   }
