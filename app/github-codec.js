@@ -55,9 +55,19 @@ function base64(bytes) {
   return btoa(parts.join(''));
 }
 
-function itemFrom(path, files) {
+function itemFrom(path, files, archive) {
   const {meta, body} = parse(files.get(path));
   if (entryPath.exec(path)?.[1] !== meta.id || typeof meta.title !== 'string' || !meta.title.trim()) throw new Error('Invalid Markdown entry at ' + path);
+  if (archive) {
+    for (const key of ['tags','source_paths','source_urls','related_ids','collections']) {
+      if (has(meta,key) && (!Array.isArray(meta[key]) || meta[key].some(v=>typeof v!=='string'))) throw Error('Invalid Markdown field: '+key);
+    }
+    for (const source of meta.source_paths || []) {
+      if (!source.startsWith('sources/') || !files.has(source)) throw Error('Missing or invalid source file: '+source);
+    }
+    if (!['active','archived'].includes(meta.status ?? 'active') || ![undefined,null,'watch-later'].includes(meta.queue) ||
+        ['core','trashed'].some(key=>has(meta,key) && typeof meta[key]!=='boolean')) throw Error('Invalid Markdown entry state.');
+  }
   const collections = [...new Set(meta.collections ?? (meta.collection ? [meta.collection] : []))];
   if (meta.queue === 'watch-later' && !collections.includes('Watch later')) collections.push('Watch later');
   const urls = (meta.source_urls ?? []).filter(webUrl);
@@ -86,9 +96,9 @@ function readSettings(files) {
   return {version: 1, parents: {}, icons: {}, appearance: {}, pinned: [], order: [], ...settings};
 }
 
-export function decodeWorkspace(files) {
+export function decodeWorkspace(files, archive = false) {
   const settings = readSettings(files);
-  const items = [...files.keys()].filter(path => entryPath.test(path)).sort().map(path => itemFrom(path, files).item);
+  const items = [...files.keys()].filter(path => entryPath.test(path)).sort().map(path => itemFrom(path, files, archive).item);
   const collections = [...new Set([...Object.keys(settings.parents), ...Object.values(settings.parents).filter(Boolean),
     ...Object.keys(settings.icons), ...Object.keys(settings.appearance), ...settings.order, ...settings.pinned,
     ...items.flatMap(item => item.collections)])];
@@ -113,7 +123,7 @@ export function encodeWorkspace(library, files) {
     if (!entryPath.test(path)) throw new Error('Invalid item ID.');
     const before = previous.get(item.id);
     const meta = before ? parse(files.get(path)).meta : Object.assign(Object.create(null), {
-      id: item.id, tags: [], related_ids: [], source_urls: [], source_paths: [],
+      id: item.id, tags: item.tags || [], related_ids: item.relatedIds || [], source_urls: item.urls || [], source_paths: item.sourcePaths || [],
     });
     let changed = !before || before.body !== item.body;
     function set(field, key, value = item[field]) {
@@ -137,7 +147,7 @@ export function encodeWorkspace(library, files) {
       if (meta.queue === 'watch-later') delete meta.queue;
     }
     // The viewer normalizes simple HTTP addresses. Keep existing provenance URLs verbatim.
-    if (!before && item.url) meta.source_urls = [item.url];
+    if (!before && item.url && !meta.source_urls.length) meta.source_urls = [item.url];
     if (item.captureHash && before?.captureHash !== item.captureHash) { meta.browser_capture_hash = item.captureHash; changed = true; }
     if (item.youtubeAuthor && before?.youtubeAuthor !== item.youtubeAuthor) { meta.youtube_author = item.youtubeAuthor; changed = true; }
     if (item.image && item.image !== before?.image) {
@@ -163,6 +173,9 @@ export function encodeWorkspace(library, files) {
       settings[key] = library.settings[key] || [];
       changed = true;
     }
+  }
+  if (!files.has('collections.json') && library.settings.sharedRepositories && Object.keys(library.settings.sharedRepositories).length) {
+    settings.sharedRepositories = library.settings.sharedRepositories;
   }
   if (changed || !files.has('collections.json')) changes.set('collections.json', encoder.encode(JSON.stringify(settings, null, 2) + '\n'));
   return changes;

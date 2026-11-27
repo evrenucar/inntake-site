@@ -397,6 +397,7 @@ function selectLibraryStyle(value) {
   document.documentElement.dataset.libraryStyle = currentStyle;
   stylePicker.querySelector(`input[value="${currentStyle}"]`).checked = true;
   applyAppearance();
+  scheduleTitleFit();
 }
 stylePicker.addEventListener('change', event => {
   selectLibraryStyle(event.target.value);
@@ -534,6 +535,7 @@ function applyAppearance() {
     document.documentElement.style.setProperty('--paper-accent', accentOn(palette[3], '#d7c4a6'));
   }
   for (const [index, variable] of ['--background', '--card', '--accent', '--glow-a', '--glow-b', '--glow-c'].entries()) document.documentElement.style.setProperty(variable, palette[index]);
+  document.documentElement.style.setProperty('--capture-ink', accentOn('#171a18', palette[2]));
   if (name && (appearance.colors || currentStyle === 'inn')) {
     const root = document.documentElement.style;
     root.setProperty('--background', glowSurface(glowSurface(palette[0], palette[3], 22), palette[4], 9));
@@ -681,10 +683,29 @@ function setupCardDrag(card, source) {
   });
 }
 let cancelCurrentDrag = null;
+const openActionMenus = '.collection-menu[open], .card-actions-menu[open]';
+const openBrowseMenus = openActionMenus + ', #browse-options[open]';
+const actionMenuLayouts = new WeakMap();
+// The native toggle event is deferred. Observe open before the next paint so
+// a freshly opened menu cannot show at its unpositioned fallback coordinates.
+new MutationObserver(changes => {
+  for (const menu of new Set(changes.map(change => change.target))) {
+    if (menu.isConnected) actionMenuLayouts.get(menu)?.();
+  }
+}).observe($('.library-layout'), {subtree: true, attributes: true, attributeFilter: ['open']});
 document.addEventListener('keydown', event => {
   if (event.key === 'Escape') {
     cancelCurrentDrag?.();
-    document.querySelectorAll('.collection-menu[open], #browse-options[open], .card-actions-menu[open]').forEach(menu => menu.open = false);
+    const cardMenu = $('.card-actions-menu[open]');
+    if (cardMenu && !document.querySelector('dialog[open]')) {
+      const restoreFocus = cardMenu.contains(document.activeElement);
+      cardMenu.open = false;
+      if (restoreFocus) cardMenu.querySelector('summary').focus({preventScroll: true});
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      return;
+    }
+    document.querySelectorAll(openBrowseMenus).forEach(menu => menu.open = false);
   }
 });
 function collectionButton(name, label = name) {
@@ -706,15 +727,39 @@ function collectionButton(name, label = name) {
   setupDropTarget(button, name);
   return button;
 }
-function attachMenu(menu, summary, options) {
+function attachMenu(menu, summary, options, above = false) {
   menu.append(summary, options);
-  menu.addEventListener('toggle', () => {
+  actionMenuLayouts.set(menu, () => {
+    delete options.dataset.menuPositioned;
     if (!menu.open) return;
-    document.querySelectorAll('.collection-menu[open]').forEach(other => { if (other !== menu) other.open = false; });
+    document.querySelectorAll(openActionMenus).forEach(other => { if (other !== menu) other.open = false; });
+
+    const inset = 8, gap = 5;
+    const viewport = window.visualViewport;
+    const left = viewport?.offsetLeft ?? 0, top = viewport?.offsetTop ?? 0;
+    let right = left + (viewport?.width ?? window.innerWidth);
+    const bottom = top + (viewport?.height ?? window.innerHeight);
+    if (!editor.hidden && window.innerWidth > 700) right = Math.min(right, editor.getBoundingClientRect().left);
+    const width = right - left - 2 * inset;
+    if (width <= 0) {
+      menu.open = false;
+      return;
+    }
     const box = summary.getBoundingClientRect();
-    const rightEdge = editor.hidden || window.innerWidth <= 700 ? window.innerWidth : editor.getBoundingClientRect().left;
-    options.style.left = Math.max(8, Math.min(box.left, rightEdge - options.offsetWidth - 8)) + 'px';
-    options.style.top = Math.max(8, Math.min(box.bottom + 5, window.innerHeight - options.offsetHeight - 8)) + 'px';
+    options.style.setProperty('--action-menu-space', width + 'px');
+    options.style.maxHeight = '';
+    const height = options.offsetHeight;
+    const roomAbove = box.top - top - inset - gap, roomBelow = bottom - box.bottom - inset - gap;
+    const preferredRoom = above ? roomAbove : roomBelow;
+    const otherRoom = above ? roomBelow : roomAbove;
+    const placeAbove = preferredRoom >= height || preferredRoom >= otherRoom ? above : !above;
+    options.style.maxHeight = Math.max(0, placeAbove ? roomAbove : roomBelow) + 'px';
+
+    const anchorX = above ? box.right - options.offsetWidth : box.left;
+    const anchorY = placeAbove ? box.top - gap - options.offsetHeight : box.bottom + gap;
+    options.style.left = Math.max(left + inset, Math.min(anchorX, right - options.offsetWidth - inset)) + 'px';
+    options.style.top = Math.max(top + inset, Math.min(anchorY, bottom - options.offsetHeight - inset)) + 'px';
+    options.dataset.menuPositioned = '';
   });
 }
 
@@ -867,8 +912,7 @@ function arrangeCollectionColumns() {
   const directList = tree.querySelector(':scope > ul');
   const items = directList ? [...directList.children] : [...tree.querySelectorAll(':scope > .collection-column > ul > li')];
   if (!items.length) return false;
-  const count = document.body.classList.contains('compact-navigation') && tree.clientWidth >= 380 && items.length > 1 ? 2 : 1;
-  document.body.classList.toggle('two-column-navigation', count === 2);
+  const count = document.body.classList.contains('compact-navigation') && items.length > 1 ? 2 : 1;
   if (!directList && tree.children.length === count) return false;
   if (!directList) rememberNavigationScroll();
   let split = items.length;
@@ -905,6 +949,35 @@ function revealSelectedCollection() {
 function navigationScrollerAt(point) {
   return document.elementFromPoint(point.clientX, point.clientY)?.closest('#collection-tree .collection-column') || null;
 }
+
+let titleFitFrame = 0;
+function scheduleTitleFit() {
+  if (titleFitFrame) return;
+  titleFitFrame = requestAnimationFrame(() => {
+    titleFitFrame = 0;
+    const name = $('#view-title .view-name');
+    if (!name) return;
+    name.style.fontSize = '';
+    if (name.closest('main').classList.contains('narrow-content')) return;
+
+    const available = name.getBoundingClientRect().width;
+    const range = document.createRange();
+    range.selectNodeContents(name);
+    const required = range.getBoundingClientRect().width;
+    if (!available || required <= available) return;
+
+    const minimumSize = 18;
+    const baseSize = parseFloat(getComputedStyle(name).fontSize);
+    let size = Math.max(minimumSize, Math.floor(baseSize * available / required * 4) / 4);
+    name.style.fontSize = `${size}px`;
+    // Fixed letter spacing can keep a label slightly wider than the estimated size.
+    while (size > minimumSize && range.getBoundingClientRect().width > available) {
+      size = Math.max(minimumSize, size - .5);
+      name.style.fontSize = `${size}px`;
+    }
+  });
+}
+document.fonts?.addEventListener('loadingdone', scheduleTitleFit);
 
 function drawTreeContext() {
   loadCollapsedCollections();
@@ -957,27 +1030,41 @@ function drawTreeContext() {
   if (focusedName !== null) [...tree.querySelectorAll('[data-collection]')].find(button => button.dataset.collection === focusedName)?.focus({preventScroll: true});
   else if (focusedBranch !== null) [...tree.querySelectorAll('[data-branch]')].find(button => button.dataset.branch === focusedBranch)?.focus({preventScroll: true});
   const crumbs = $('#collection-breadcrumbs'); crumbs.replaceChildren();
-  if (selected) {
-    const all = element('button', '', 'All items'); all.addEventListener('click', () => chooseCollection('')); crumbs.append(all);
-    for (const name of collectionPath(selected).slice(0, -1)) { const button = element('button', '', name); button.addEventListener('click', () => chooseCollection(name)); crumbs.append(element('span', '', '/'), button); }
+  for (const name of collectionPath(selected).slice(0, -1)) {
+    if (crumbs.childElementCount) crumbs.append(element('span', '', '/'));
+    const button = element('button', '', name);
+    button.addEventListener('click', () => chooseCollection(name));
+    crumbs.append(button);
   }
-  const title = $('#view-title'); title.replaceChildren();
+  const title = $('#view-title');
   const trash = $('#archive-filter').value === 'trash';
-  if (selected) title.append(collectionIconNode(selected));
-  title.append(element('span', 'view-name', selected || (trash ? 'Trash' : 'All items')));
+  const label = selected || (trash ? 'Trash' : 'All items');
+  const previousName = title.querySelector('.view-name');
+  const viewName = previousName?.textContent === label ? previousName : element('span', 'view-name', label);
+  const trashBack = $('#trash-back');
+  const titleWidthChanged = viewName !== previousName
+    || Boolean(title.querySelector('.collection-icon')) !== Boolean(selected)
+    || trashBack.hidden !== !trash;
+  viewName.title = selected;
+  title.replaceChildren(...(selected ? [collectionIconNode(selected), viewName] : [viewName]));
   $('#current-collection-menu').replaceChildren(collectionMenu(selected, true));
-  $('#trash-back').hidden = !trash;
+  trashBack.hidden = !trash;
   const returnTo = trashReturn?.collection || 'All items';
-  $('#trash-back').setAttribute('aria-label', `Back to ${returnTo}`);
-  $('#trash-back').title = `Back to ${returnTo}`;
+  trashBack.setAttribute('aria-label', `Back to ${returnTo}`);
+  trashBack.title = `Back to ${returnTo}`;
   renderLinkedPlaylists(trash ? '' : selected);
   applyAppearance();
+  if (titleWidthChanged) scheduleTitleFit();
 }
 document.addEventListener('click', event => {
-  document.querySelectorAll('.collection-menu[open], #browse-options[open]').forEach(menu => { if (!menu.contains(event.target)) menu.open = false; });
+  document.querySelectorAll(openBrowseMenus).forEach(menu => { if (!menu.contains(event.target)) menu.open = false; });
 });
 $('#collection-tree').addEventListener('scroll', () => { rememberNavigationScroll(); document.querySelectorAll('.collection-menu[open]').forEach(menu => menu.open = false); }, true);
-window.addEventListener('resize', () => document.querySelectorAll('.collection-menu[open], #browse-options[open]').forEach(menu => menu.open = false));
+window.addEventListener('resize', () => document.querySelectorAll(openBrowseMenus).forEach(menu => menu.open = false));
+const closeCardMenu = () => { const menu = $('.card-actions-menu[open]'); if (menu) menu.open = false; };
+window.addEventListener('scroll', closeCardMenu, {passive: true});
+window.visualViewport?.addEventListener('resize', closeCardMenu);
+window.visualViewport?.addEventListener('scroll', closeCardMenu, {passive: true});
 $('#browse-options').addEventListener('toggle', () => {
   if (!$('#browse-options').open) return;
   const panel = $('#browse-options .filter-panel'), summary = $('#filter-summary').getBoundingClientRect();
@@ -1448,17 +1535,30 @@ function showOverview(source) {
   const content = element('div', 'full-note-body'); renderFullNote(source, content); fullNote.append(content); overview.append(fullNote);
 }
 
-function stopVideo() {
+function clearPlayer() {
   if (!activeVideo) return;
+  activeVideo.exitViewport(false);
   activeVideo.media.replaceChildren();
   activeVideo = null;
+}
+
+function stopVideo() {
+  clearPlayer();
   render();
 }
+
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && activeVideo?.media.classList.contains('viewport-player')) {
+    event.stopImmediatePropagation();
+    activeVideo.exitViewport(true);
+  }
+}, true);
+document.addEventListener('fullscreenchange', () => activeVideo?.updateFullscreen());
 
 function playVideo(source, media, card) {
   const id = youtubeVideoId(source.url);
   if (!id) return;
-  if (activeVideo) activeVideo.media.replaceChildren();
+  clearPlayer();
   const frame = element('iframe', 'inline-video');
   const url = new URL(`https://www.youtube.com/embed/${id}`);
   url.searchParams.set('autoplay', '1');
@@ -1474,17 +1574,55 @@ function playVideo(source, media, card) {
   stop.setAttribute('aria-label', `Stop ${source.title}`);
   stop.title = 'Stop video'; stop.addEventListener('click', stopVideo);
   const fullscreen = element('button', 'player-fullscreen', '⛶');
-  fullscreen.setAttribute('aria-label', `Fullscreen ${source.title}`);
-  fullscreen.title = 'Fullscreen';
+  let placeholder, previousScroll;
+  function updateFullscreen() {
+    const expanded = !!placeholder || document.fullscreenElement === media;
+    fullscreen.setAttribute('aria-label', expanded ? 'Exit fullscreen' : `Fullscreen ${source.title}`);
+    fullscreen.title = expanded ? 'Exit fullscreen' : 'Fullscreen';
+    fullscreen.textContent = placeholder ? 'Done' : '⛶';
+  }
+  function exitViewport(restoreFocus) {
+    if (!placeholder) return;
+    if (media.hasAttribute('popover')) {
+      media.hidePopover();
+      media.removeAttribute('popover');
+    }
+    media.classList.remove('viewport-player');
+    document.documentElement.classList.remove('video-expanded');
+    placeholder.remove();
+    placeholder = null;
+    updateFullscreen();
+    window.scrollTo(previousScroll.x, previousScroll.y);
+    if (restoreFocus) fullscreen.focus({preventScroll:true});
+  }
+  function enterViewport() {
+    previousScroll = {x:window.scrollX, y:window.scrollY};
+    placeholder = element('div');
+    placeholder.style.height = media.getBoundingClientRect().height + 'px';
+    placeholder.style.marginBottom = getComputedStyle(media).marginBottom;
+    media.before(placeholder);
+    media.classList.add('viewport-player');
+    document.documentElement.classList.add('video-expanded');
+    // Promote the existing iframe to the top layer without restarting playback.
+    if (typeof media.showPopover === 'function') {
+      media.setAttribute('popover', 'manual');
+      try { media.showPopover(); } catch { media.removeAttribute('popover'); }
+    }
+    updateFullscreen();
+    fullscreen.focus({preventScroll:true});
+  }
+  updateFullscreen();
   fullscreen.addEventListener('click', async () => {
-    try {
-      if (document.fullscreenElement) await document.exitFullscreen();
-      else await media.requestFullscreen();
-    } catch { actionStatus('Fullscreen is unavailable in this browser. You can also try the video player’s fullscreen control.'); }
+    if (placeholder) return exitViewport(true);
+    if (document.fullscreenElement === media) return document.exitFullscreen();
+    if (document.fullscreenEnabled && typeof media.requestFullscreen === 'function') {
+      try { await media.requestFullscreen(); return; } catch { /* Embedded browsers may deny fullscreen. */ }
+    }
+    if (activeVideo?.media === media && !placeholder) enterViewport();
   });
   media.classList.add('playing');
   media.replaceChildren(frame, externalButton(source, 'media-external'), stop, fullscreen);
-  activeVideo = { id: source.id, media, card };
+  activeVideo = { id: source.id, media, card, exitViewport, updateFullscreen };
   // Keep the playing card connected during catalog refreshes and note saves.
   render();
 }
@@ -1572,7 +1710,7 @@ function renderCard(source) {
   const meta = element('div', 'source');
   const host = webLink(source.url)?.hostname.replace(/^www\./, '');
   const drag = element('button', 'drag-handle', '⠿'); drag.setAttribute('aria-label', `Drag ${source.title}`); drag.title = 'Drag to a collection';
-  meta.append(drag, element('span', '', videoId ? 'YouTube' : host || (source.images?.length ? 'Image' : 'Note')));
+  meta.append(drag, element('span', 'source-label', videoId ? 'YouTube' : host || (source.images?.length ? 'Image' : 'Note')));
   if (item.core) meta.append(element('span', 'core-badge', 'Core'));
   if (!videoId && !source.images?.length) meta.append(externalButton(source));
   const heading = element('h2');
@@ -1608,6 +1746,7 @@ function renderCard(source) {
   const menu = element('details', 'card-actions-menu'); const more = element('summary', '', '⋯'); more.setAttribute('aria-label', `Actions for ${source.title}`);
   const options = element('div');
   const edit = editButton(source); edit.className = ''; edit.textContent = 'Edit note'; options.append(edit);
+  edit.addEventListener('click', () => { menu.open = false; });
   const move = element('button', '', 'Move to collection…'); move.addEventListener('click', () => { menu.open = false; openMoveDialog(source); }); options.append(move);
   const membership = membershipInView(source);
   if (membership) {
@@ -1615,7 +1754,9 @@ function renderCard(source) {
     remove.addEventListener('click', () => { menu.open = false; changeItem(source, {collections: itemCollections(source).filter(name => name !== membership)}); }); options.append(remove);
   }
 
-  options.append(archiveButton(source), trashButton(source, menu)); menu.append(more, options); actions.append(menu, impactControl(source));
+  options.append(archiveButton(source), trashButton(source, menu));
+  attachMenu(menu, more, options, true);
+  actions.append(menu, impactControl(source));
   footer.append(footerStart, actions);
   card.append(footer);
   return card;
@@ -1737,7 +1878,7 @@ function render() {
     return matchesArchive(source) && (!$('#core-only').checked || item.core) && (!activeCategory || item.category === activeCategory) && (!collection || itemCollections(source).some(name => inCollection(name, collection))) && words.every(word => text.includes(word));
   }).sort(compareSources);
   cardLayoutObserver.disconnect();
-  if (activeVideo && (view !== 'cards' || !visible.some(source => source.id === activeVideo.id))) { activeVideo.media.replaceChildren(); activeVideo = null; }
+  if (activeVideo && (view !== 'cards' || !visible.some(source => source.id === activeVideo.id))) clearPlayer();
   // Remove only non-playing cards; removing/reparenting an iframe restarts it.
   for (const child of [...cards.children]) if (child !== activeVideo?.card) child.remove();
   rows.replaceChildren();
@@ -2019,16 +2160,408 @@ function syncWorkspaceLayout() {
   if (arrangeCollectionColumns()) revealSelectedCollection();
   navigationDivider.setAttribute('aria-valuenow', String(Math.round(actual))); navigationDivider.setAttribute('aria-valuemin', '220'); navigationDivider.setAttribute('aria-valuemax', String(Math.round(maximum)));
 }
+function setupMobileNavigation({sidebar, toggle, isCompact, isOpen, open, close}) {
+  const body = document.body;
+  const slot = $('#navigation-slot');
+  const pullSlop = 6;
+  const touchPullToOpen = 46;
+  const wheelPullToOpen = 30;
+  const swipeToClose = 52;
+  const dismissTravel = swipeToClose + 20;
+  const scrollToClose = 44;
+  const wheelFreshGap = 190;
+  const wheelPullIdle = 1400;
+  const wheelSettleIdle = 115;
+  let panelHeight = 0;
+  let gesture = null;
+  let lastWheelAt = -Infinity;
+  let wheelGesture = null;
+  let wheelReset = 0;
+  let edgeDragPointer = null;
+  let pendingTopPointer = null;
+  let previousScroll = Math.max(0, window.scrollY);
+  let downDistance = 0;
+
+  const atTop = () => window.scrollY <= 2;
+  const updateTopHint = () => body.classList.toggle('navigation-at-top', isCompact() && window.scrollY <= 0);
+  const skipGesture = (target, closing) => sidebar.contains(target) || toggle.contains(target)
+    || target.closest('#editor, .drag-handle, textarea, [contenteditable]')
+    || (!closing && target.closest('input, select'))
+    || document.querySelector('dialog[open]');
+
+  function measureDrawer() {
+    panelHeight = sidebar.getBoundingClientRect().height;
+    slot.style.setProperty('--navigation-panel-height', `${panelHeight}px`);
+  }
+  const panelObserver = new ResizeObserver(measureDrawer);
+
+  function previewPull(distance) {
+    body.classList.toggle('navigation-pulling', distance > 0);
+    if (distance) slot.style.setProperty('--navigation-pull', `${distance}px`);
+    else slot.style.removeProperty('--navigation-pull');
+  }
+  function settlePull() {
+    // Commit the last pull height as the starting point of the CSS transition.
+    void slot.offsetHeight;
+    open();
+  }
+  function resetTouch() {
+    gesture = null;
+    if (!wheelGesture) previewPull(0);
+  }
+  function resetWheel() {
+    clearTimeout(wheelReset);
+    wheelReset = 0;
+    wheelGesture = null;
+    if (!gesture) previewPull(0);
+  }
+  function resetPull() {
+    resetTouch();
+    resetWheel();
+  }
+  function dismissFromScroll(movement) {
+    if (!movement.dismissed) {
+      movement.dismissed = true;
+      close();
+    }
+    // A short swipe closes the drawer. Continuing the same swipe then scrolls the items.
+    const top = Math.max(0, movement.distance - dismissTravel);
+    if (window.scrollY !== top) window.scrollTo({top, behavior: 'instant'});
+  }
+
+  document.addEventListener('touchstart', event => {
+    resetPull();
+    const closing = isOpen();
+    if (!isCompact() || event.touches.length !== 1 || skipGesture(event.target, closing)) return;
+    // Reaching the top with a normal scroll does not arm a pull.
+    if (!closing && !atTop()) return;
+    const {clientX, clientY} = event.touches[0];
+    gesture = {x: clientX, y: clientY, closing, distance: 0};
+  }, {passive: true});
+
+  document.addEventListener('touchmove', event => {
+    if (!gesture) return;
+    if (!isCompact() || event.touches.length !== 1 || (!gesture.dismissed && gesture.closing !== isOpen())) {
+      resetTouch();
+      return;
+    }
+    const {clientX, clientY} = event.touches[0];
+    const dx = clientX - gesture.x;
+    const dy = clientY - gesture.y;
+    if (gesture.closing) {
+      if (!gesture.dismissed && -dy <= Math.abs(dx)) return;
+      if (event.cancelable) event.preventDefault();
+      gesture.distance = Math.max(0, -dy);
+      if (gesture.dismissed || gesture.distance >= swipeToClose) dismissFromScroll(gesture);
+      return;
+    }
+    if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy)) {
+      resetTouch();
+      return;
+    }
+    if (dy < -pullSlop || !atTop()) {
+      resetTouch();
+      return;
+    }
+    gesture.distance = dy > Math.max(pullSlop, Math.abs(dx)) ? dy : 0;
+    if (gesture.distance && event.cancelable) event.preventDefault();
+    previewPull(gesture.distance);
+  }, {passive: false});
+
+  document.addEventListener('touchend', () => {
+    const ready = isCompact() && !gesture?.closing && gesture?.distance >= touchPullToOpen;
+    if (ready) settlePull();
+    resetTouch();
+  }, {passive: true});
+  document.addEventListener('touchcancel', resetTouch, {passive: true});
+
+  function finishWheelPull() {
+    if (isCompact() && !isOpen() && atTop() && !wheelGesture?.closing
+      && wheelGesture?.distance >= wheelPullToOpen && !document.querySelector('dialog[open]')) settlePull();
+    resetWheel();
+  }
+  function trackWheel(event) {
+    const now = performance.now();
+    const fresh = now - lastWheelAt >= wheelFreshGap;
+    lastWheelAt = now;
+    const {deltaMode, deltaX, deltaY} = event;
+    if (!isCompact() || gesture || draggingItem || event.ctrlKey || event.shiftKey
+      || Math.abs(deltaX) >= Math.abs(deltaY) || skipGesture(event.target, isOpen() || wheelGesture?.dismissed)) {
+      if (wheelGesture) resetWheel();
+      return;
+    }
+    if (wheelGesture?.dismissed && (fresh || deltaY < 0)) resetWheel();
+    const closing = isOpen() || wheelGesture?.dismissed === true;
+    if (wheelGesture && wheelGesture.closing !== closing) resetWheel();
+    // Inertial events that started below the top still belong to that scroll.
+    // An eligible pull can build up over much longer gaps between small deltas.
+    if (!wheelGesture) {
+      if (closing ? deltaY <= 0 : !fresh || !atTop() || deltaY >= 0) return;
+      wheelGesture = {closing, distance: 0};
+    }
+    if (closing ? deltaY <= 0 : !atTop() || deltaY >= 0) {
+      resetWheel();
+      return;
+    }
+    if (event.cancelable) event.preventDefault();
+    const scale = deltaMode === 1 ? 16 : deltaMode === 2 ? window.innerHeight : 1;
+    const distance = Math.abs(deltaY) * scale;
+    wheelGesture.distance += distance;
+    if (closing) {
+      if (wheelGesture.distance >= swipeToClose) dismissFromScroll(wheelGesture);
+      clearTimeout(wheelReset);
+      wheelReset = setTimeout(resetWheel, wheelFreshGap);
+      return;
+    }
+    previewPull(wheelGesture.distance);
+    // A strong single wheel step already expresses intent. Smaller steps
+    // keep tracking the pull until that gesture pauses.
+    if (distance >= wheelPullToOpen || (panelHeight > 0 && wheelGesture.distance >= panelHeight)) {
+      finishWheelPull();
+      return;
+    }
+    const ready = wheelGesture.distance >= wheelPullToOpen;
+    clearTimeout(wheelReset);
+    wheelReset = setTimeout(finishWheelPull, ready ? wheelSettleIdle : wheelPullIdle);
+  }
+  window.addEventListener('blur', () => {
+    resetPull();
+    pendingTopPointer = null;
+    if (edgeDragPointer !== null) {
+      edgeDragPointer = null;
+      close();
+    }
+  });
+  window.addEventListener('resize', () => {
+    resetPull();
+    pendingTopPointer = null;
+    updateTopHint();
+  });
+
+  function openForDrag(pointerId) {
+    pendingTopPointer = null;
+    edgeDragPointer = pointerId;
+    open();
+  }
+  function revealPendingTopDrag() {
+    if (pendingTopPointer !== null && draggingItem && isCompact() && !isOpen() && atTop()) {
+      openForDrag(pendingTopPointer);
+    }
+  }
+
+  // A held card can reveal its collection drop targets without a second finger.
+  document.addEventListener('pointermove', event => {
+    if (!event.isPrimary || !draggingItem || isOpen()) return;
+    if (isCompact()) {
+      // Card dragging already scrolls the document when held in this edge zone.
+      pendingTopPointer = event.clientY < 30 ? event.pointerId : null;
+      revealPendingTopDrag();
+    } else if (event.pointerType === 'touch' && body.classList.contains('landscape-navigation') && event.clientX <= 24) {
+      openForDrag(event.pointerId);
+    }
+  }, {passive: true});
+  for (const event of ['pointerup', 'pointercancel', 'lostpointercapture']) {
+    document.addEventListener(event, point => {
+      if (point.pointerId === pendingTopPointer) pendingTopPointer = null;
+      if (point.pointerId !== edgeDragPointer) return;
+      edgeDragPointer = null;
+      close();
+    }, {passive: true});
+  }
+
+  window.addEventListener('scroll', () => {
+    updateTopHint();
+    const current = Math.max(0, window.scrollY);
+    const delta = current - previousScroll;
+    previousScroll = current;
+    revealPendingTopDrag();
+    // A collection column handles its own scrolling. Only the page can dismiss here.
+    downDistance = isCompact() && isOpen() && !draggingItem && delta > 0 ? downDistance + delta : 0;
+    if (downDistance >= scrollToClose) {
+      downDistance = 0;
+      close();
+    }
+  }, {passive: true});
+
+  function refreshCompactInput() {
+    updateTopHint();
+    // Read scrollY before the browser applies the wheel delta. Keep the
+    // non-passive listener off desktop so its scrolling stays independent.
+    if (isCompact()) {
+      measureDrawer();
+      panelObserver.observe(sidebar);
+      document.addEventListener('wheel', trackWheel, {passive: false});
+    } else {
+      panelObserver.disconnect();
+      slot.style.removeProperty('--navigation-panel-height');
+      document.removeEventListener('wheel', trackWheel);
+      lastWheelAt = -Infinity;
+      resetPull();
+    }
+  }
+  refreshCompactInput();
+  return refreshCompactInput;
+}
 function setNavigationWidth(width) {
   const available = document.querySelector('.library-layout').getBoundingClientRect().width;
   preferredNavigationWidth = Math.max(220, Math.min(600, available - 400, width));
   try { localStorage.setItem('personal-library-navigation-width', String(preferredNavigationWidth)); } catch {}
   syncWorkspaceLayout();
 }
+function setupNavigationDrawer() {
+  const body = document.body;
+  const sidebar = $('#library-sidebar');
+  const toggle = $('#navigation-toggle');
+  const library = browserLocalViewer && new URLSearchParams(location.search).get('library');
+  const pinKey = 'personal-library-navigation-pinned' + (library ? ':' + library.toLowerCase() : '');
+  const edge = 18;
+  let pinned = false;
+  try { pinned = localStorage.getItem(pinKey) === 'true'; } catch {}
+  let mode = 'closed';
+  let hideTimer = 0;
+  let suppressEdge = false;
+  let pointerBeyondLeft = false;
+  const isCompact = () => body.classList.contains('compact-navigation');
+  const layoutKind = () => isCompact() ? 'compact' : landscapePhone.matches ? 'landscape' : 'desktop';
+  const isOpen = () => mode !== 'closed';
+
+  function cancelHide() {
+    clearTimeout(hideTimer);
+    hideTimer = 0;
+  }
+  function show(nextMode) {
+    cancelHide();
+    mode = nextMode;
+    const expanded = isOpen();
+    if (!expanded && sidebar.contains(document.activeElement)) toggle.focus({preventScroll: true});
+    sidebar.inert = !expanded;
+    body.dataset.navigationDrawer = mode;
+    toggle.setAttribute('aria-expanded', String(expanded));
+    const action = {
+      pinned: 'Unpin library navigation',
+      open: 'Hide library navigation',
+      hover: 'Pin library navigation',
+      closed: 'Show library navigation'
+    }[mode];
+    toggle.setAttribute('aria-label', action);
+    toggle.title = action;
+    if (!expanded) sidebar.querySelectorAll('.collection-menu[open]').forEach(menu => { menu.open = false; });
+  }
+  function setPinned(value) {
+    pinned = value;
+    try { localStorage.setItem(pinKey, String(value)); } catch {}
+    suppressEdge = !value;
+    show(value ? 'pinned' : 'closed');
+  }
+  function close() {
+    if (mode === 'pinned') return;
+    suppressEdge = true;
+    show('closed');
+  }
+  function scheduleHide() {
+    if (mode !== 'hover' || hideTimer) return;
+    hideTimer = setTimeout(() => {
+      hideTimer = 0;
+      if (!draggingItem && !draggingCollection && !body.classList.contains('resizing-navigation')
+        && !sidebar.querySelector(':focus-visible') && !document.querySelector('dialog[open]')) show('closed');
+    }, 190);
+  }
+  function revealFromEdge(event) {
+    if (mode === 'closed' && !suppressEdge && (!event.buttons || draggingItem)
+      && !document.querySelector('dialog[open]')) show('hover');
+  }
+  function leaveViewport(event) {
+    if (isCompact() || event.pointerType !== 'mouse') return;
+    pointerBeyondLeft = event.clientX <= edge && event.clientY >= 0 && event.clientY < window.innerHeight;
+    if (pointerBeyondLeft) {
+      cancelHide();
+      revealFromEdge(event);
+    } else scheduleHide();
+  }
+  function trackPointer(event) {
+    if (isCompact() || event.pointerType !== 'mouse') return;
+    const {clientX, clientY} = event;
+    if (clientX < 0 || clientX >= window.innerWidth || clientY < 0 || clientY >= window.innerHeight) {
+      leaveViewport(event);
+      return;
+    }
+    pointerBeyondLeft = false;
+    if (clientX > edge + 6) suppressEdge = false;
+    if (mode === 'hover') {
+      if (clientX <= sidebar.offsetWidth + 8 || sidebar.contains(event.target) || toggle.contains(event.target)) {
+        cancelHide();
+      } else scheduleHide();
+    } else if (clientX <= edge) revealFromEdge(event);
+  }
+
+  document.addEventListener('pointermove', trackPointer, {passive: true});
+  document.addEventListener('pointerup', trackPointer, {passive: true});
+  document.documentElement.addEventListener('pointerenter', trackPointer);
+  document.documentElement.addEventListener('pointerleave', leaveViewport);
+  window.addEventListener('blur', () => { if (!pointerBeyondLeft) scheduleHide(); });
+  toggle.addEventListener('click', () => {
+    if (layoutKind() === 'desktop') {
+      setPinned(mode !== 'pinned');
+      return;
+    }
+    if (mode === 'open') {
+      close();
+      return;
+    }
+    if (isCompact()) window.scrollTo({top: 0, behavior: 'instant'});
+    show('open');
+  });
+  document.addEventListener('click', event => {
+    if (mode === 'open' && !isCompact() && !sidebar.contains(event.target) && !toggle.contains(event.target)
+      && !event.target.closest('[data-skip-click]') && !document.querySelector('dialog[open]')) close();
+  });
+  document.addEventListener('keydown', event => {
+    if (event.key !== 'Escape' || !isOpen() || cancelCurrentDrag
+      || document.querySelector('dialog[open], .collection-menu[open], #browse-options[open], .card-actions-menu[open]')) return;
+    if (mode === 'pinned') {
+      if (document.activeElement !== toggle && !sidebar.contains(document.activeElement)) return;
+      event.stopPropagation();
+      setPinned(false);
+      return;
+    }
+    event.stopPropagation();
+    close();
+  }, true);
+  const refreshMobileNavigation = setupMobileNavigation({sidebar, toggle, isCompact, isOpen, open: () => show('open'), close});
+  let currentLayout = layoutKind();
+  show(currentLayout === 'desktop' && pinned ? 'pinned' : 'closed');
+  requestAnimationFrame(() => body.classList.add('navigation-ready'));
+  function refreshDrawerLayout() {
+    const nextLayout = layoutKind();
+    if (nextLayout === currentLayout) return;
+    currentLayout = nextLayout;
+    suppressEdge = false;
+    show(currentLayout === 'desktop' && pinned ? 'pinned' : 'closed');
+    refreshMobileNavigation();
+  }
+  new ResizeObserver(refreshDrawerLayout).observe($('.library-layout'), {box: 'border-box'});
+  landscapePhone.addEventListener('change', refreshDrawerLayout);
+}
 setEditorWidth(preferredEditorWidth, false);
-const workspaceObserver = new ResizeObserver(syncWorkspaceLayout); workspaceObserver.observe(document.querySelector('.library-layout'));
+let observedWorkspaceWidth;
+const workspaceObserver = new ResizeObserver(([entry]) => {
+  const width = entry.borderBoxSize?.[0]?.inlineSize ?? entry.target.getBoundingClientRect().width;
+  if (width === observedWorkspaceWidth) return;
+  observedWorkspaceWidth = width;
+  syncWorkspaceLayout();
+});
+workspaceObserver.observe(document.querySelector('.library-layout'), {box: 'border-box'});
 landscapePhone.addEventListener('change', syncWorkspaceLayout);
-const mainLayoutObserver = new ResizeObserver(([entry]) => entry.target.classList.toggle('narrow-content', entry.contentRect.width < 650)); mainLayoutObserver.observe(document.querySelector('main'));
+setupNavigationDrawer();
+let observedMainWidth;
+const mainLayoutObserver = new ResizeObserver(([entry]) => {
+  const {width} = entry.contentRect;
+  if (width === observedMainWidth) return;
+  observedMainWidth = width;
+  entry.target.classList.toggle('narrow-content', width < 600);
+  scheduleTitleFit();
+});
+mainLayoutObserver.observe(document.querySelector('main'));
 function finishPanelResize(event, handle, className) {
   if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId);
   document.body.classList.remove(className);
@@ -2109,6 +2642,9 @@ function persistDrafts() {
 const captureDialog = $('#capture-dialog');
 const captureForm = $('#capture-form');
 const captureStatus = $('#capture-status');
+const captureCollection = $('#capture-collection');
+const captureCollectionButton = $('#capture-collection-button');
+const captureCollectionOptions = $('#capture-collection-options');
 let pendingCapture = null;
 let captureSaving = false;
 let captureReading = false;
@@ -2127,6 +2663,7 @@ function showCaptureRetry() {
   const playlist = !pendingCapture && isYouTubePlaylist(captureForm.elements.url.value);
   $('#capture-fields').disabled = Boolean(pendingCapture);
   $('#capture-details').hidden = playlist;
+  $('#capture-title').textContent = pendingCapture && !pendingCapture.url ? 'Save note' : 'Save link';
   $('#capture-save').textContent = pendingCapture ? 'Retry save' : playlist ? 'Import videos' : 'Save link';
 }
 
@@ -2173,18 +2710,108 @@ search.addEventListener('paste', event => {
   render();
 });
 
+function captureCollectionLabel(name) {
+  return [collectionIconNode(name, name ? undefined : 'icon:grid'), element('span', 'capture-choice-name', name ? collectionPath(name).join(' / ') : 'No collection')];
+}
+
+function selectCaptureCollection(name) {
+  captureCollection.value = name;
+  $('#capture-collection-value').replaceChildren(...captureCollectionLabel(name));
+  for (const option of captureCollectionOptions.children) option.setAttribute('aria-selected', String(option.dataset.collection === name));
+}
+
+function renderCaptureCollections(selected) {
+  const names = ['', ...sortedCollections()];
+  if (selected && !names.includes(selected)) names.push(selected);
+  captureCollectionOptions.replaceChildren(...names.map(name => {
+    const option = element('button');
+    option.type = 'button';
+    option.tabIndex = -1;
+    option.setAttribute('role', 'option');
+    option.dataset.collection = name;
+    option.append(...captureCollectionLabel(name));
+    return option;
+  }));
+  selectCaptureCollection(selected || '');
+}
+
+function closeCaptureCollectionPicker(restoreFocus = false) {
+  if (captureCollectionOptions.hidden) return;
+  captureCollectionOptions.hidden = true;
+  captureCollectionButton.setAttribute('aria-expanded', 'false');
+  if (restoreFocus) captureCollectionButton.focus({preventScroll: true});
+}
+
+function focusCaptureCollection(option) {
+  option.focus({preventScroll: true});
+  const list = captureCollectionOptions.getBoundingClientRect();
+  const row = option.getBoundingClientRect();
+  if (row.top < list.top) captureCollectionOptions.scrollTop += row.top - list.top;
+  if (row.bottom > list.bottom) captureCollectionOptions.scrollTop += row.bottom - list.bottom;
+}
+
+let captureTypeahead = '';
+let captureTypeaheadAt = 0;
+function openCaptureCollectionPicker() {
+  captureTypeahead = '';
+  captureCollectionOptions.hidden = false;
+  captureCollectionButton.setAttribute('aria-expanded', 'true');
+  focusCaptureCollection(captureCollectionOptions.querySelector('[aria-selected="true"]') || captureCollectionOptions.firstElementChild);
+}
+
+captureCollectionButton.addEventListener('click', () => {
+  if (captureCollectionOptions.hidden) openCaptureCollectionPicker();
+  else closeCaptureCollectionPicker(true);
+});
+captureCollectionButton.addEventListener('keydown', event => {
+  if (!['ArrowDown', 'ArrowUp'].includes(event.key)) return;
+  event.preventDefault();
+  openCaptureCollectionPicker();
+});
+captureCollectionOptions.addEventListener('click', event => {
+  const option = event.target.closest('[role="option"]');
+  if (!option) return;
+  selectCaptureCollection(option.dataset.collection);
+  captureDestinationChanged = true;
+  closeCaptureCollectionPicker(true);
+});
+captureCollectionOptions.addEventListener('keydown', event => {
+  if (event.key === 'Tab' || event.key === 'Escape') {
+    closeCaptureCollectionPicker(true);
+    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); }
+    return;
+  }
+  const options = [...captureCollectionOptions.children];
+  const index = options.indexOf(document.activeElement);
+  let target;
+  switch (event.key) {
+    case 'ArrowDown': target = options[Math.min(index + 1, options.length - 1)]; break;
+    case 'ArrowUp': target = options[Math.max(index - 1, 0)]; break;
+    case 'Home': target = options[0]; break;
+    case 'End': target = options.at(-1); break;
+    default: {
+      if (event.key.length !== 1 || event.key === ' ' || event.ctrlKey || event.metaKey || event.altKey) return;
+      const key = event.key.toLocaleLowerCase();
+      captureTypeahead = event.timeStamp - captureTypeaheadAt > 600 ? key : captureTypeahead + key;
+      captureTypeaheadAt = event.timeStamp;
+      const prefix = [...captureTypeahead].every(char => char === key) ? key : captureTypeahead;
+      target = [...options.slice(index + 1), ...options.slice(0, index + 1)]
+        .find(option => (option.dataset.collection || 'No collection').toLocaleLowerCase().startsWith(prefix));
+    }
+  }
+  if (target) { event.preventDefault(); focusCaptureCollection(target); }
+});
+captureDialog.addEventListener('click', event => {
+  if (!$('#capture-collection-picker').contains(event.target)) closeCaptureCollectionPicker();
+});
+captureDialog.addEventListener('close', () => closeCaptureCollectionPicker());
+
 function openCapture({message = '', url = '', collection = $('#collection-filter').value} = {}) {
   restorePendingCapture();
-  const selection = pendingCapture ? pendingCapture.collection : captureDestinationChanged ? $('#capture-collection').value : collection;
-  collectionSelect($('#capture-collection'), selection, 'No collection');
+  const selection = pendingCapture ? pendingCapture.collection : captureDestinationChanged ? captureCollection.value : collection;
+  renderCaptureCollections(selection);
   if (pendingCapture) {
     for (const key of ['url', 'title', 'note', 'category']) captureForm.elements[key].value = pendingCapture[key] || '';
-    if (selection && !$('#capture-collection').value) {
-      const option = element('option', '', selection);
-      option.value = selection;
-      $('#capture-collection').append(option);
-      $('#capture-collection').value = selection;
-    }
     $('#capture-details').open = Boolean(pendingCapture.title || pendingCapture.note || pendingCapture.category);
   } else if (url && !captureForm.elements.url.value) {
     captureForm.elements.url.value = url;
@@ -2198,21 +2825,33 @@ function quickCapture(url, collection, searchValue = null) {
   restorePendingCapture();
   if (pendingCapture) { openCapture(); return; }
   if (isYouTubePlaylist(url)) return savePlaylistCapture(url, collection, {quick: true, searchValue});
-  return saveLinkCapture({id: crypto.randomUUID(), url, collection}, {quick: true, searchValue});
+  return saveItemCapture({id: crypto.randomUUID(), url, collection}, {quick: true, searchValue});
 }
 
 $('#capture-open').addEventListener('click', () => {
-  const url = captureLink(search.value);
-  if (url) quickCapture(url, $('#collection-filter').value, search.value);
-  else openCapture();
+  if (captureSaving || captureReading) return;
+  restorePendingCapture();
+  const searchValue = search.value;
+  const note = searchValue.trim();
+  if (pendingCapture || !note) { openCapture(); return; }
+  const collection = $('#collection-filter').value;
+  const url = captureLink(note);
+  if (url) { quickCapture(url, collection, searchValue); return; }
+  if (/^(?:https?:|www\.|[a-z][a-z\d+.-]*:\/\/)/i.test(note)) {
+    actionStatus('Enter a valid HTTP or HTTPS link.');
+    return;
+  }
+  saveItemCapture({id: crypto.randomUUID(), note, collection}, {quick: true, searchValue});
 });
-$('#capture-collection').addEventListener('change', () => { captureDestinationChanged = true; });
 captureForm.elements.url.addEventListener('input', showCaptureRetry);
 $('#capture-close').addEventListener('click', () => { if (!captureSaving) captureDialog.close(); });
 captureDialog.addEventListener('cancel', event => { if (captureSaving) event.preventDefault(); });
+enableBackdropDismiss(captureDialog, () => !captureSaving);
 
 function beginCapture(message, quick) {
   captureSaving = true;
+  captureDialog.setAttribute('closedby', 'none');
+  closeCaptureCollectionPicker();
   updateCaptureButtons();
   $('#capture-fields').disabled = true;
   $('#capture-save').disabled = true;
@@ -2223,6 +2862,7 @@ function beginCapture(message, quick) {
 
 function endCapture() {
   captureSaving = false;
+  captureDialog.setAttribute('closedby', 'any');
   updateCaptureButtons();
   $('#capture-save').disabled = false;
   $('#capture-close').disabled = false;
@@ -2232,7 +2872,7 @@ function endCapture() {
 function closeSavedCapture() {
   captureForm.reset();
   captureDestinationChanged = false;
-  $('#capture-collection').value = '';
+  captureCollection.value = '';
   $('#capture-details').open = false;
   captureDialog.close();
 }
@@ -2254,15 +2894,17 @@ async function savePlaylistCapture(url, collection, {quick = false, searchValue 
   }
 }
 
-async function saveLinkCapture(payload, {quick = false, searchValue = null} = {}) {
+async function saveItemCapture(payload, {quick = false, searchValue = null} = {}) {
+  if (captureSaving) return;
+  const kind = payload.url ? 'Link' : 'Note';
   savePendingCapture(payload);
-  beginCapture('Saving link…', quick);
+  beginCapture(`Saving ${kind.toLowerCase()}…`, quick);
   try {
     const response = await libraryFetch('/api/items', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)});
     const result = await response.json();
     if (!response.ok) {
       if (response.status < 500) savePendingCapture(null);
-      throw new Error(result.error || 'Could not save this link.');
+      throw new Error(result.error || `Could not save this ${kind.toLowerCase()}.`);
     }
     annotations[result.source.id] = result.item;
     sources = [...sources.filter(source => source.id !== result.source.id), result.source];
@@ -2272,13 +2914,14 @@ async function saveLinkCapture(payload, {quick = false, searchValue = null} = {}
     updateFilters();
     render();
     if (result.warning) actionStatus(result.warning);
-    else successStatus(payload.collection ? `Link saved in ${payload.collection}.` : 'Link saved.');
+    else successStatus(payload.collection ? `${kind} saved in ${payload.collection}.` : `${kind} saved.`);
     const open = element('button', 'secondary-action', 'Open item');
     open.addEventListener('click', () => { actionStatus(''); openEditor(result.source); });
     $('#action-status').append(document.createTextNode(' '), open);
   } catch (error) {
     const message = pendingCapture ? 'Couldn’t confirm the save. Retry to finish.' : error.message;
-    if (quick) {
+    if (quick && !pendingCapture && !payload.url) actionStatus(message);
+    else if (quick) {
       actionStatus('');
       openCapture({message, url: payload.url, collection: payload.collection});
     } else captureStatus.textContent = message;
@@ -2288,10 +2931,14 @@ async function saveLinkCapture(payload, {quick = false, searchValue = null} = {}
 captureForm.addEventListener('submit', event => {
   event.preventDefault();
   if (captureSaving) return;
-  if (pendingCapture) { saveLinkCapture(pendingCapture); return; }
+  if (pendingCapture) {
+    const value = pendingCapture.url || pendingCapture.note;
+    saveItemCapture(pendingCapture, {searchValue: search.value.trim() === value ? search.value : null});
+    return;
+  }
   const fields = Object.fromEntries(new FormData(captureForm));
   if (isYouTubePlaylist(fields.url)) savePlaylistCapture(fields.url, fields.collection);
-  else saveLinkCapture({id: crypto.randomUUID(), ...fields});
+  else saveItemCapture({id: crypto.randomUUID(), ...fields});
 });
 
 async function readCaptureImage(file) {
@@ -2391,7 +3038,7 @@ $('#capture-paste').addEventListener('click', async () => {
   const url = clipboardLink(text);
   if (!url) {
     search.focus(); search.select();
-    actionStatus('Paste an image here, or paste a link and choose Add link.');
+    actionStatus('Paste an image here, or paste a link and choose Add.');
     return;
   }
   await quickCapture(url, collection);
@@ -2477,25 +3124,79 @@ const settingsDialog = $('#settings-dialog');
 $('#settings-open').addEventListener('click', () => settingsDialog.showModal());
 $('#settings-close').addEventListener('click', () => settingsDialog.close());
 
-if (!('closedBy' in settingsDialog)) {
+const backupDownload = $('#backup-download');
+const backupRestore = $('#backup-restore');
+const backupStatus = $('#backup-status');
+
+if (browserLocalViewer) {
+  let exportingBackup = false;
+  backupDownload.addEventListener('click', async event => {
+    event.preventDefault();
+    if (exportingBackup) return;
+    exportingBackup = true;
+    backupStatus.textContent = 'Preparing ZIP backup…';
+    try {
+      const response = await libraryFetch('/api/backup.zip');
+      if (!response.ok) {
+        const error = await response.json().catch(() => null);
+        throw new Error(error?.error || 'Could not export this library.');
+      }
+      const url = URL.createObjectURL(await response.blob());
+      const link = element('a');
+      link.href = url;
+      link.download = 'inntake-library-' + new Date().toISOString().slice(0, 10) + '.zip';
+      document.body.append(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 30000);
+      backupStatus.textContent = 'ZIP download started.';
+    } catch (error) { backupStatus.textContent = error.message; }
+    finally { exportingBackup = false; }
+  });
+}
+
+backupRestore.addEventListener('change', async () => {
+  const file = backupRestore.files[0];
+  if (!file) return;
+  const type = /\.json$/i.test(file.name) || file.type === 'application/json' ? 'application/json' : 'application/zip';
+  backupRestore.disabled = true;
+  backupStatus.textContent = 'Importing backup…';
+  try {
+    const response = await libraryFetch('/api/restore', {
+      method: 'POST', headers: {'Content-Type': type}, body: file
+    });
+    const result = await response.json().catch(() => null);
+    if (!response.ok || !Number.isSafeInteger(result?.added)) throw new Error(result?.error || 'Could not import this backup.');
+    await loadCatalog(true);
+    backupStatus.textContent = result.added ? `Imported ${result.added} ${result.added === 1 ? 'item' : 'items'}.` : 'No new items to import.';
+  } catch (error) { backupStatus.textContent = error.message; }
+  finally {
+    backupRestore.disabled = false;
+    backupRestore.value = '';
+  }
+});
+
+function enableBackdropDismiss(dialog, canClose = () => true) {
+  if ('closedBy' in dialog) return;
   // Older browsers retarget backdrop events to the dialog, just like clicks on its padding.
   const onBackdrop = event => {
-    if (event.target !== settingsDialog) return false;
-    const {left, right, top, bottom} = settingsDialog.getBoundingClientRect();
+    if (event.target !== dialog) return false;
+    const {left, right, top, bottom} = dialog.getBoundingClientRect();
     return event.clientX < left || event.clientX > right || event.clientY < top || event.clientY > bottom;
   };
   let pressedOutside = false;
-  settingsDialog.addEventListener('pointerdown', event => {
+  dialog.addEventListener('pointerdown', event => {
     pressedOutside = event.isPrimary && event.button === 0 && onBackdrop(event);
   });
   for (const type of ['pointercancel', 'close']) {
-    settingsDialog.addEventListener(type, () => { pressedOutside = false; });
+    dialog.addEventListener(type, () => { pressedOutside = false; });
   }
-  settingsDialog.addEventListener('click', event => {
-    if (pressedOutside && onBackdrop(event)) settingsDialog.close();
+  dialog.addEventListener('click', event => {
+    if (pressedOutside && onBackdrop(event) && canClose()) dialog.close();
     pressedOutside = false;
   });
 }
+enableBackdropDismiss(settingsDialog);
 
 const macSync = $('#mac-sync');
 if (macSync) {
@@ -2528,12 +3229,6 @@ if (macSync) {
   });
 }
 
-const playlistInput = $('#youtube-playlist');
-const playlistSubmit = $('#youtube-preview-submit');
-const playlistAddAll = $('#youtube-add-all');
-const playlistStatus = $('#youtube-preview-status');
-const playlistResults = $('#youtube-preview-results');
-const playlistGroups = [['new', 'New'], ['already_saved', 'Already saved']];
 const playlistLinkDialog = $('#link-playlist-dialog');
 const playlistLinkForm = $('#link-playlist-form');
 let playlistLinkCollection = '';
@@ -2623,82 +3318,6 @@ playlistLinkForm.addEventListener('submit', async event => {
     successStatus(result.queued ? 'Queued for your connected Mac.' : `Playlist linked · ${playlistVideoCount(result.total)}.`);
   } catch (error) { status.textContent = error.message; }
   finally { playlistLinkSubmit.disabled = input.readOnly = false; }
-});
-
-function setPlaylistStatus(text) {
-  playlistStatus.textContent = text;
-  playlistStatus.hidden = !text;
-}
-
-function showPlaylistPreview(report) {
-  if (!report || playlistGroups.some(([key]) => !Array.isArray(report[key]))) {
-    throw new Error('The playlist preview returned an unexpected response. Try again.');
-  }
-  const results = document.createDocumentFragment();
-  for (const [key, label] of playlistGroups) {
-    const items = report[key];
-    const heading = `${label} · ${items.length}`;
-    if (!items.length) {
-      results.append(element('p', '', heading));
-      continue;
-    }
-    const group = element('details');
-    group.open = key === 'new';
-    group.append(element('summary', '', heading));
-    const list = element('ul');
-    for (const item of items) {
-      list.append(element('li', '', item.title));
-    }
-    group.append(list);
-    results.append(group);
-  }
-  playlistResults.replaceChildren(results);
-  playlistResults.hidden = false;
-  const count = report.new.length + report.already_saved.length;
-  playlistAddAll.hidden = !count;
-  setPlaylistStatus(`${playlistVideoCount(count)} from YouTube’s feed`);
-}
-
-playlistInput.addEventListener('input', () => {
-  playlistResults.hidden = true;
-  playlistAddAll.hidden = true;
-  setPlaylistStatus('');
-});
-$('#youtube-preview-form').addEventListener('submit', async event => {
-  event.preventDefault();
-  if (playlistSubmit.disabled) return;
-  const playlist = playlistInput.value.trim();
-  if (!playlist) { setPlaylistStatus('Enter a YouTube playlist URL or ID.'); return; }
-  playlistSubmit.disabled = true;
-  playlistInput.readOnly = true;
-  playlistResults.hidden = true;
-  playlistAddAll.hidden = true;
-  setPlaylistStatus('Checking playlist…');
-  try {
-    const response = await libraryFetch('/api/youtube-preview', {
-      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({playlist})
-    });
-    const report = await response.json().catch(() => null);
-    if (!response.ok) throw new Error(typeof report?.error === 'string' ? report.error : 'Could not preview the playlist. Try again.');
-    showPlaylistPreview(report);
-  } catch (error) {
-    setPlaylistStatus(error instanceof TypeError ? 'Could not reach the library. Try again.' : error.message);
-  } finally {
-    playlistSubmit.disabled = false;
-    playlistInput.readOnly = false;
-  }
-});
-playlistAddAll.addEventListener('click', async () => {
-  const collection = $('#collection-filter').value;
-  playlistAddAll.disabled = playlistSubmit.disabled = playlistInput.readOnly = true;
-  setPlaylistStatus('Adding videos…');
-  try {
-    const result = await requestPlaylistChange('import', playlistInput.value.trim(), collection);
-    await loadCatalog(true);
-    playlistAddAll.hidden = playlistResults.hidden = true;
-    setPlaylistStatus(playlistImportMessage(result, collection));
-  } catch (error) { setPlaylistStatus(error.message); }
-  finally { playlistAddAll.disabled = playlistSubmit.disabled = playlistInput.readOnly = false; }
 });
 
 $('#copy-draft').addEventListener('click', async () => {

@@ -270,13 +270,76 @@
   }
 
   const malletImage = new Image();
-  malletImage.src = './assets/mallet.png';
-  window.innMalletReady = malletImage.decode().catch(() => {});
   const malletColors = [
     [58,37,25], [82,51,32], [101,61,34], [103,74,56], [123,72,37], [131,87,64],
     [149,85,40], [165,96,59], [182,108,64], [160,111,85], [177,122,90], [196,120,71],
     [189,136,101], [210,135,79], [212,151,104], [230,173,120],
   ];
+
+  // A small copy of the same sprite keeps the mallet painted if its PNG is late or unavailable.
+  const malletRows = [
+    '................................',
+    '..........b.....................',
+    '........8bda....................',
+    '.......dea5555..................',
+    '.....ec97533578.................',
+    '....ee955558b74.................',
+    '...ec9977888611.................',
+    '..acaa988b84212.................',
+    '.9acaceeb765942.................',
+    '..55aeec7427ddb.................',
+    '..2239c722106bed8...............',
+    '...213533211.248cbb.............',
+    '.....13321.....24bdbb...........',
+    '.......22........268db8.........',
+    '...................247ddb.......',
+    '.....................268ec88....',
+    '......................1268cc97..',
+    '........................1478cc8.',
+    '..........................146b5.',
+    '............................12..',
+    '................................',
+  ];
+  const fallbackMallet = document.createElement('canvas');
+  fallbackMallet.width = malletRows[0].length;
+  fallbackMallet.height = malletRows.length;
+  const fallbackContext = fallbackMallet.getContext('2d');
+  const fallbackPixels = fallbackContext.createImageData(fallbackMallet.width, fallbackMallet.height);
+  malletRows.forEach((row, y) => {
+    for (let x = 0; x < row.length; x++) {
+      if (row[x] === '.') continue;
+      const pixel = (y * fallbackMallet.width + x) * 4;
+      fallbackPixels.data.set(malletColors[Number.parseInt(row[x], 16)], pixel);
+      fallbackPixels.data[pixel + 3] = 255;
+    }
+  });
+  fallbackContext.putImageData(fallbackPixels, 0, 0);
+
+  function upgradeMallet(canvas) {
+    const spriteURL = './assets/mallet.png';
+    return new Promise(resolve => {
+      // The floor is already painted. Give the larger sprite a brief head start
+      // without tying the room reveal to a slow or failed image request.
+      const deadline = setTimeout(resolve, 750);
+      function ready() {
+        clearTimeout(deadline);
+        resolve();
+      }
+      let retried = false;
+      malletImage.addEventListener('error', () => {
+        if (retried) ready();
+        else {
+          retried = true;
+          malletImage.src = spriteURL + '?retry=1';
+        }
+      });
+      malletImage.addEventListener('load', () => {
+        paintMallet(canvas);
+        ready();
+      }, {once: true});
+      malletImage.src = spriteURL;
+    });
+  }
 
   function paintMallet(canvas, view = 'floor') {
     const floor = view === 'floor', close = view === 'head';
@@ -289,64 +352,63 @@
     const spriteHeight = Math.round(spriteWidth * crop[3] / crop[2]);
     canvas.width = width;
     canvas.height = height;
-    function draw() {
-      if (!malletImage.naturalWidth || canvas.width !== width || canvas.height !== height) return;
-      const ctx = canvas.getContext('2d', {willReadFrequently:true});
-      if (!ctx) return;
-      // Average the photograph sprite into native room cells, then restore its original wood palette.
-      ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = 'high';
-      ctx.clearRect(0,0,width,height);
-      ctx.drawImage(malletImage,...crop,0,0,spriteWidth,spriteHeight);
-      const body = ctx.getImageData(0,0,spriteWidth,spriteHeight).data;
-      const frame = ctx.createImageData(width, height);
-      const bottoms = new Int16Array(spriteWidth).fill(-1);
-      const offsetX = floor ? Math.max(1,Math.round(width*.017)) : 0;
-      for(let y=0;y<spriteHeight;y++) for(let x=0;x<spriteWidth;x++) {
-        const i=(y*spriteWidth+x)*4;
-        if(body[i+3]<108) continue;
-        bottoms[x]=y;
-        let nearest=malletColors[0], best=Infinity;
-        for(const rgb of malletColors) {
-          const delta=(body[i]-rgb[0])**2*.8+(body[i+1]-rgb[1])**2+(body[i+2]-rgb[2])**2*.6;
-          if(delta<best) { best=delta; nearest=rgb; }
-        }
-        const dst=(y*width+x+offsetX)*4;
-        frame.data.set(nearest,dst);
-        frame.data[dst+3]=255;
+    const ctx = canvas.getContext('2d', {willReadFrequently:true});
+    if (!ctx) return;
+    // Average the photograph sprite into native room cells, then restore its original wood palette.
+    const source = malletImage.complete && malletImage.naturalWidth ? malletImage : fallbackMallet;
+    const scaleX = source.width / 224;
+    const scaleY = source.height / 149;
+    ctx.imageSmoothingEnabled = source === malletImage;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.clearRect(0,0,width,height);
+    ctx.drawImage(source, crop[0] * scaleX, crop[1] * scaleY, crop[2] * scaleX, crop[3] * scaleY,
+      0, 0, spriteWidth, spriteHeight);
+    const body = ctx.getImageData(0,0,spriteWidth,spriteHeight).data;
+    const frame = ctx.createImageData(width, height);
+    const bottoms = new Int16Array(spriteWidth).fill(-1);
+    const offsetX = floor ? Math.max(1,Math.round(width*.017)) : 0;
+    for(let y=0;y<spriteHeight;y++) for(let x=0;x<spriteWidth;x++) {
+      const i=(y*spriteWidth+x)*4;
+      if(body[i+3]<108) continue;
+      bottoms[x]=y;
+      let nearest=malletColors[0], best=Infinity;
+      for(const rgb of malletColors) {
+        const delta=(body[i]-rgb[0])**2*.8+(body[i+1]-rgb[1])**2+(body[i+2]-rgb[2])**2*.6;
+        if(delta<best) { best=delta; nearest=rgb; }
       }
-      if(floor) {
-        // Project the raised wooden head onto the stones. Its full thickness throws
-        // a wedge of shade. The slender handle sits close to its contact line.
-        const shadow=new Uint8Array(width*height);
-        function shade(x,y,alpha) {
-          if(x>=0 && x<width && y>=0 && y<height) {
-            const i=y*width+x;
-            shadow[i]=Math.max(shadow[i],alpha);
-          }
-        }
-        for(let x=0;x<spriteWidth;x++) {
-          const foot=bottoms[x];
-          if(foot<0) continue;
-          for(let y=0;y<=foot;y++) {
-            if(body[(y*spriteWidth+x)*4+3]<108) continue;
-            const lift=foot-y;
-            const sx=x+offsetX+1+Math.round(lift*.30), sy=foot+1+Math.round(lift*.16);
-            shade(sx+1,sy+1,57);
-            shade(sx,sy,105);
-          }
-          shade(x+offsetX,foot+1,157);
-          shade(x+offsetX+1,foot+1,135);
-        }
-        for(let i=0;i<shadow.length;i++) {
-          if(!shadow[i] || frame.data[i*4+3]) continue;
-          frame.data.set([29,22,18,shadow[i]],i*4);
-        }
-      }
-      ctx.putImageData(frame,0,0);
+      const dst=(y*width+x+offsetX)*4;
+      frame.data.set(nearest,dst);
+      frame.data[dst+3]=255;
     }
-    if (malletImage.complete) draw();
-    else malletImage.addEventListener('load', draw, {once:true});
+    if(floor) {
+      // Project the raised wooden head onto the stones. Its full thickness throws
+      // a wedge of shade. The slender handle sits close to its contact line.
+      const shadow=new Uint8Array(width*height);
+      function shade(x,y,alpha) {
+        if(x>=0 && x<width && y>=0 && y<height) {
+          const i=y*width+x;
+          shadow[i]=Math.max(shadow[i],alpha);
+        }
+      }
+      for(let x=0;x<spriteWidth;x++) {
+        const foot=bottoms[x];
+        if(foot<0) continue;
+        for(let y=0;y<=foot;y++) {
+          if(body[(y*spriteWidth+x)*4+3]<108) continue;
+          const lift=foot-y;
+          const sx=x+offsetX+1+Math.round(lift*.30), sy=foot+1+Math.round(lift*.16);
+          shade(sx+1,sy+1,57);
+          shade(sx,sy,105);
+        }
+        shade(x+offsetX,foot+1,157);
+        shade(x+offsetX+1,foot+1,135);
+      }
+      for(let i=0;i<shadow.length;i++) {
+        if(!shadow[i] || frame.data[i*4+3]) continue;
+        frame.data.set([29,22,18,shadow[i]],i*4);
+      }
+    }
+    ctx.putImageData(frame,0,0);
   }
 
   function paintGrimoire(canvas) {
@@ -700,6 +762,7 @@
     if (!canvas) continue;
     paint(canvas);
     if (name === 'mallet') {
+      window.innMalletReady = upgradeMallet(canvas);
       let lastWidth=canvas.getBoundingClientRect().width;
       const room=document.querySelector('.room');
       let lastRoomWidth=room.clientWidth, lastRoomHeight=room.clientHeight;

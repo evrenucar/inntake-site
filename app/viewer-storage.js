@@ -1,3 +1,4 @@
+import {makeArchive, parseArchive, prepareFiles} from './library-archive.js';
 import {playlistRows, queuePlaylist} from './playlist-requests.js';
 import {exclusive, libraryView, mounted, readValue} from './browser-store.js';
 const libraryKey = 'inntake-local-library-v1';
@@ -104,8 +105,12 @@ function withSection(body, heading, contents) {
   return text ? `${body.trimEnd()}\n\n## ${heading}\n${text}\n` : body;
 }
 
-function newBody(title, note, url) {
-  return `${withSection(`# ${title}\n`, 'User notes', note).trimEnd()}\n\n## Sources and provenance\n${url ? '<'+url+'>' : 'Image saved from browser'}\n`;
+function newBody(title, note, url, image) {
+  const provenance = url ? '<'+url+'>' : image ? 'Image saved from browser' : 'Note saved from browser';
+  const body = !url && !image && note
+    ? `# ${title}\n\n## User notes\n${note.replace(/^##[ \t]/gm, ' $&')}\n`
+    : withSection(`# ${title}\n`, 'User notes', note);
+  return `${body.trimEnd()}\n\n## Sources and provenance\n${provenance}\n`;
 }
 
 function validatedAppearance(value) {
@@ -148,13 +153,13 @@ const imagePaths = new Map();
 function normalizeRecord(value) {
   if (!object(value) || typeof value.id !== 'string' || !uuid.test(value.id)) throw new LocalError('The browser library has an invalid item.');
   const image = imageData(value.image);
-  const url = value.canonical && !value.url || image && !value.url ? '' : address(value.url);
-  const title = field(value.title, 200, 'An item title is invalid.').trim() || (image ? 'Saved image' : new URL(url).hostname);
+  const url = value.url === '' || (value.canonical || image) && !value.url ? '' : address(value.url);
+  const title = field(value.title, 200, 'An item title is invalid.').trim() || (url ? new URL(url).hostname : image ? 'Saved image' : 'Saved note');
   const primary = value.collection || '';
   const collections = names(value.collections ?? (primary ? [primary] : []));
   const createdAt = value.createdAt;
   if (typeof createdAt !== 'string' || !Number.isFinite(Date.parse(createdAt))) throw new LocalError('An item has an invalid date.');
-  const body = has(value, 'body') ? field(value.body, 100000, 'An item note is too long.') : newBody(title, field(value.note || '', 20000, 'An item note is too long.'), url);
+  const body = has(value, 'body') ? field(value.body, 100000, 'An item note is too long.') : newBody(title, field(value.note || '', 20000, 'An item note is too long.'), url, image);
   const impact = value.impact ?? null;
   if (impact !== null && (!Number.isInteger(impact) || impact < 0 || impact > 7)) throw new LocalError('An item has an invalid impact score.');
   const record = {id: value.id, url, title, note: section(body, 'User notes'), collection: collections[0] || '', collections, createdAt,
@@ -234,7 +239,7 @@ function display(record) {
   const title = /^(?:(?:www|old|new|m)\.)?reddit\.com$|^redd\.it$/i.test(record.title) && record.url && redditPost(new URL(record.url))
     ? fallbackTitle(record.url) : record.title;
   const source = {id: record.id, title, summary: section(record.body, 'Summary') || record.youtubeAuthor || '', category: record.category, collection: record.collection,
-    collections: record.collections, tags: [], addedAt: record.createdAt, updatedAt: record.updatedAt, url: record.url, urls: [record.url],
+    collections: record.collections, tags: [], addedAt: record.createdAt, updatedAt: record.updatedAt, url: record.url, urls: record.url ? [record.url] : [],
     path: `entries/${record.id}.md`, sourceType: 'note', images: [], attachments: [], fullText: record.body, relatedIds: []};
   if (record.canonical) {
     source.tags = record.tags;
@@ -262,13 +267,15 @@ function catalog(data) {
 async function capture(storage, input) {
   if (typeof input.id !== 'string' || !uuid.test(input.id)) throw new LocalError('A valid capture ID is required.');
   const image = imageData(input.image);
-  const url = image ? '' : address(input.url);
-  const enteredTitle = field(input.title ?? '', 200, 'Use a shorter title.').trim();
-  const title = enteredTitle || (image ? 'Saved image' : fallbackTitle(url));
   const note = field(input.note ?? '', 20000, 'Use a shorter note.').trim();
+  const noteOnly = Boolean(note && (input.url === undefined || input.url === ''));
+  const url = image || noteOnly ? '' : address(input.url);
+  const enteredTitle = field(input.title ?? '', 200, 'Use a shorter title.').trim();
+  const firstLine = note.split(/\r?\n/, 1)[0].trim().replace(/\s+/g, ' ');
+  const title = enteredTitle || (image ? 'Saved image' : url ? fallbackTitle(url) : Array.from(firstLine).slice(0, 100).join(''));
   const collection = field(input.collection ?? '', 100, 'Choose an existing collection.').trim();
   const kind = category(input.category ?? '');
-  const bytes = new TextEncoder().encode(JSON.stringify([image || url, enteredTitle || (image ? title : new URL(url).hostname), note, collection, kind]));
+  const bytes = new TextEncoder().encode(JSON.stringify([image || url, enteredTitle || (url ? new URL(url).hostname : title), note, collection, kind]));
   const captureHash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), byte => byte.toString(16).padStart(2, '0')).join('');
   const data = load(storage);
   const previous = data.items.find(item => item.id === input.id);
@@ -396,12 +403,12 @@ function saveCollection(storage, input, iconOnly) {
   return iconOnly ? {icons: settings.icons, revision: data.settingsRevision} : {settings, revision: data.settingsRevision};
 }
 
-function restore(storage, raw) {
-  const backup = normalizeLibrary(JSON.parse(raw), true);
+async function restore(storage, {backup,files}) {
   const data = load(storage);
   const ids = new Set(data.items.map(item => item.id));
   const added = backup.items.filter(item => !ids.has(item.id));
   const newCollections = backup.collections.filter(collection => !data.collections.includes(collection));
+  const empty = !data.collections.length && !data.items.length;
   for (const collection of newCollections) {
     data.collections.push(collection);
     data.settings.parents[collection] = backup.settings.parents[collection];
@@ -411,11 +418,21 @@ function restore(storage, raw) {
   }
   data.settings.order.push(...backup.settings.order.filter(collection => newCollections.includes(collection)));
   assertHierarchy(data.settings.parents);
-  if (added.length || newCollections.length) {
+  const linkCount = data.settings.youtubePlaylists.length;
+  if (empty) data.settings = {...backup.settings, youtubeRequests:[]};
+  else {
+    const existing = new Set(data.settings.youtubePlaylists.map(row=>JSON.stringify([row.collection,row.id])));
+    data.settings.youtubePlaylists.push(...backup.settings.youtubePlaylists.filter(row=>!existing.has(JSON.stringify([row.collection,row.id]))));
+    for (const name of newCollections) {
+      if (Object.hasOwn(backup.settings.sharedRepositories,name)) data.settings.sharedRepositories[name] = backup.settings.sharedRepositories[name];
+    }
+  }
+  const fileCount = await prepareFiles(storage,files,added,empty);
+  if (added.length || newCollections.length || fileCount || data.settings.youtubePlaylists.length !== linkCount) {
     data.items.push(...added);
     save(storage, data, newCollections.length > 0);
   }
-  return {added: added.length};
+  return {added: added.length, skipped:backup.items.length-added.length};
 }
 
 const json = (value, status = 200, headers = {}) => Response.json(value, {status, headers});
@@ -442,6 +459,19 @@ export function createLocalFetch(storage, nativeFetch, base = appBase) {
         }
         return json(result);
       }
+      if (method === 'GET' && route === '/api/backup.zip') {
+        try {
+          // Freeze only the record and blob references. Compression runs after
+          // releasing the capture lock; referenced blobs are immutable.
+          const snapshot = async () => {
+            if (storage.refresh) await storage.refresh();
+            return {data:load(storage), index:await storage.archiveIndex?.() || {}};
+          };
+          const {data,index} = storage.refresh ? await exclusive(snapshot) : await snapshot();
+          const blob = await makeArchive(data,storage,index);
+          return new Response(blob,{headers:{'Content-Disposition':'attachment; filename="inntake-library.zip"'}});
+        } catch (err) { throw new LocalError(err.message); }
+      }
       if (method === 'GET' && route === '/api/backup') return json({format: backupFormat, ...load(storage)}, 200, {'Content-Disposition': 'attachment; filename="inntake-library.json"'});
       if (method === 'GET' && route.startsWith('/files/')) {
         const body = markdown(storage, route.slice('/files/'.length));
@@ -450,8 +480,13 @@ export function createLocalFetch(storage, nativeFetch, base = appBase) {
       if (method !== 'POST') return json({error: 'This feature is unavailable in the browser library.'}, 404);
       const raw = init.body ?? (input instanceof Request ? await input.text() : '');
       if (route === '/api/restore') {
-        if (typeof raw !== 'string' || raw.length > 8_000_000) throw new LocalError('Choose a smaller browser-library backup.');
-        return json(await writeLibrary(storage, () => restore(storage, raw)));
+        try {
+          const parsed = await parseArchive(raw,normalizeLibrary);
+          return json(await writeLibrary(storage, () => restore(storage, parsed)));
+        } catch (err) {
+          if (err.name === 'QuotaExceededError') throw err;
+          throw new LocalError(err.message);
+        }
       }
       const data = JSON.parse(raw);
       if (!object(data)) throw new LocalError('Expected a JSON object.');
@@ -468,7 +503,7 @@ export function createLocalFetch(storage, nativeFetch, base = appBase) {
       }
       if (route === '/api/items') {
         const result = await writeLibrary(storage, () => capture(storage, data));
-        if (result.created && !data.image && !data.title?.trim()) void enrichLinkTitle(storage, nativeFetch, result.source);
+        if (result.created && result.source.url && !data.title?.trim()) void enrichLinkTitle(storage, nativeFetch, result.source);
         return json(result, result.created ? 201 : 200);
       }
       if (route === '/api/collections' || route === '/api/collection-icon') return json(await writeLibrary(storage, () => saveCollection(storage, data, route.endsWith('icon'))));

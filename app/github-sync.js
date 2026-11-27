@@ -199,9 +199,10 @@ export async function syncWorkspace({repo, branch, token, report, resolutions, a
     const prior = await readValue('state', 'sync');
     if (prior && prior.binding !== binding) throw new Error('This library is connected to ' + prior.binding + '. Open another library separately.');
     const dirty = await readValue('state', 'syncDirty');
-    if (automatic && prior && dirty === false && Date.now() - (prior.checked || 0) < 12000) return {unchanged:true};
+    const cached = await readValue('state','assets');
+    if (automatic && cached?.files && prior && dirty === false && Date.now() - (prior.checked || 0) < 12000) return {unchanged:true};
     const ref = await api.request('/git/ref/heads/' + encodedBranch(branch));
-    if (prior && dirty === false && prior.head === sha(ref.object?.sha)) {
+    if (cached?.files && prior && dirty === false && prior.head === sha(ref.object?.sha)) {
       await writeValues('state', [['sync', {...prior, checked:Date.now()}]]);
       return {unchanged:true};
     }
@@ -216,11 +217,26 @@ export async function syncWorkspace({repo, branch, token, report, resolutions, a
       }
     }
     const remoteLibrary = normalizeLibrary(decodeWorkspace(remote.files));
-    const view = await libraryView();
+    const {view, imports} = await exclusive(async () => ({
+      view:await libraryView(), imports:(await readValue('state','assets'))?.pending || {}
+    }));
     const local = load(view);
     const merged = await mergeLibraries(local, remoteLibrary, prior?.hashes, resolutions);
     if (merged.conflicts) return merged;
-    const changes = encodeWorkspace(merged.library, remote.files);
+    // Imported archives can contain arbitrary source attachments and native metadata.
+    // Stage their validated bytes on the same atomic Git commit as the imported cards.
+    const imported = new Map();
+    for (const [path,id] of Object.entries(imports)) {
+      if (remote.paths.has(path)) {
+        if (sourcePath(path) && remote.paths.get(path) !== id) throw Error('A restored attachment conflicts with GitHub: ' + path);
+      } else {
+        const bytes = await readValue('blobs',id);
+        if (!bytes) throw Error('A restored file is missing on this device: ' + path);
+        imported.set(path,bytes);
+      }
+    }
+    const base = imported.size ? new Map([...remote.files,...imported]) : remote.files;
+    const changes = new Map([...imported,...encodeWorkspace(merged.library, base)]);
     report(changes.size ? 'Saving changes to GitHub…' : 'Updating this device…');
     const head = await publish(api, branch, remote, changes, cacheBlob);
     for (const [path, bytes] of changes) remote.files.set(path, bytes);
@@ -250,7 +266,16 @@ export async function syncWorkspace({repo, branch, token, report, resolutions, a
         pending = stringify(rebase.hashes) !== stringify(hashes);
       }
       save(view, data, true);
-      await view.flush([['sync', state], ['syncDirty', pending], ['assets', {head, paths}]], true);
+      const current = await readValue('state','assets') || {};
+      const remaining = Object.fromEntries(Object.entries(current.pending || {}).filter(([path,id]) => imports[path] !== id));
+      const originals = Object.fromEntries([...remote.paths].filter(([path]) => !sourcePath(path)));
+      if (current.files?.['INDEX.md']) originals['INDEX.md']=current.files['INDEX.md'];
+      for (const [path,id] of Object.entries(current.paths || {})) {
+        if (!sourcePath(path) || Object.hasOwn(remaining,path)) paths[path]=id;
+      }
+      for (const [path,id] of Object.entries(remaining)) if (!sourcePath(path)) originals[path]=id;
+      const assets = {head:crypto.randomUUID(),files:originals, paths, pending:remaining};
+      await view.flush([['sync', state], ['syncDirty', pending || Object.keys(remaining).length>0], ['assets',assets]], true);
       return {changed:changes.size, items:data.items.length, timestamp, pending};
     });
   });

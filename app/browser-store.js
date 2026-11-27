@@ -37,10 +37,11 @@ export async function readValue(store, key) {
   });
 }
 
-export async function writeValues(store, entries) {
+export async function writeValues(store, entries, blobs) {
   const database = await db();
   await new Promise((resolve, reject) => {
-    const tx = database.transaction(store, 'readwrite');
+    const tx = database.transaction(blobs ? [store, 'blobs'] : store, 'readwrite');
+    if (blobs) for (const [key,value] of blobs) tx.objectStore('blobs').put(value,key);
     for (const [key, value] of entries) tx.objectStore(store).put(value, key);
     tx.oncomplete = resolve;
     tx.onabort = () => reject(tx.error || new Error('Browser storage could not save these changes.'));
@@ -50,7 +51,11 @@ export async function writeValues(store, entries) {
 export async function libraryView() {
   const view = {
     raw: null, changed: false,
+    archiveIndex: () => readValue('state','assets'),
+    getBlob: id => readValue('blobs', id),
+    stageArchive(index, blobs) { this.archive = {index, blobs}; },
     async refresh() {
+      this.archive = null;
       const saved = await readValue('state', 'library');
       this.raw = saved ?? (mounted === null ? localStorage.getItem(legacyKey) : null);
       this.changed = false;
@@ -59,7 +64,9 @@ export async function libraryView() {
     setItem(key, value) { this.raw = value; this.changed = true; },
     async flush(more = [], syncWrite = false) {
       if (this.changed && !syncWrite) more = [...more, ['syncDirty', true]];
-      if (this.changed || more.length) await writeValues('state', [...more, ['library', this.raw]]);
+      if (this.archive) more = [...more, ['assets',this.archive.index]];
+      if (this.changed || more.length) await writeValues('state', [...more, ['library', this.raw]],this.archive?.blobs);
+      this.archive=null;
       if (this.changed) {
         changes?.postMessage(syncWrite ? 'sync' : 'edit');
         if (!syncWrite) window.dispatchEvent(new Event('inntake-local-edit'));
