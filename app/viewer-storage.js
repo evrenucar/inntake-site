@@ -1,6 +1,7 @@
 import {makeArchive, parseArchive, prepareFiles} from './library-archive.js';
 import {playlistRows, queuePlaylist} from './playlist-requests.js';
 import {exclusive, libraryView, mounted, readValue} from './browser-store.js';
+import './link-cleanup.js';
 const libraryKey = 'inntake-local-library-v1';
 const libraryId = 'inntake-browser-library' + (mounted === null ? '' : ':' + mounted.toLowerCase());
 const backupFormat = 'inntake-local-library';
@@ -33,14 +34,14 @@ function names(values) {
   return unique(values.map(name));
 }
 
-function address(value) {
+function address(value, cleanup = false) {
   const text = field(value, 8192, 'Enter a valid HTTP or HTTPS link.').trim();
   let url;
   try { url = new URL(text); } catch {}
   if (!/^https?:\/\//i.test(text) || /[\s\x00-\x1f\x7f<>\\]/.test(text) || !url?.hostname || url.username || url.password) {
     throw new LocalError('Enter a valid HTTP or HTTPS link without credentials.');
   }
-  return url.href;
+  return cleanup ? inntakeLinkCleanup.cleanUrl(url.href) : url.href;
 }
 
 function youtubeId(value) {
@@ -110,7 +111,7 @@ function newBody(title, note, url, image) {
   const body = !url && !image && note
     ? `# ${title}\n\n## User notes\n${note.replace(/^##[ \t]/gm, ' $&')}\n`
     : withSection(`# ${title}\n`, 'User notes', note);
-  return `${body.trimEnd()}\n\n## Sources and provenance\n${provenance}\n`;
+  return `${body.trimEnd()}\n\n## Sources and provenance\n${provenance}\n${url || note ? 'Saved links omit known tracking/share identifiers automatically.\n' : ''}`;
 }
 
 function validatedAppearance(value) {
@@ -267,9 +268,9 @@ function catalog(data) {
 async function capture(storage, input) {
   if (typeof input.id !== 'string' || !uuid.test(input.id)) throw new LocalError('A valid capture ID is required.');
   const image = imageData(input.image);
-  const note = field(input.note ?? '', 20000, 'Use a shorter note.').trim();
+  const note = inntakeLinkCleanup.cleanText(field(input.note ?? '', 20000, 'Use a shorter note.').trim());
   const noteOnly = Boolean(note && (input.url === undefined || input.url === ''));
-  const url = image || noteOnly ? '' : address(input.url);
+  const url = image || noteOnly ? '' : address(input.url, true);
   const enteredTitle = field(input.title ?? '', 200, 'Use a shorter title.').trim();
   const firstLine = note.split(/\r?\n/, 1)[0].trim().replace(/\s+/g, ' ');
   const title = enteredTitle || (image ? 'Saved image' : url ? fallbackTitle(url) : Array.from(firstLine).slice(0, 100).join(''));
@@ -356,6 +357,11 @@ function edit(storage, id, input) {
     for (const [key, heading, max] of [['notes', 'User notes', 20000], ['strengths', 'Strengths', 5000], ['limitations', 'Limitations', 5000]]) {
       if (has(input, key)) record.body = withSection(record.body, heading, field(input[key], max, `${heading} is too long.`));
     }
+  }
+  if (!has(input, 'trashed')) {
+    if (record.url) record.url = address(record.url, true);
+    if (record.urls) record.urls = record.urls.map(url => address(url, true));
+    record.body = inntakeLinkCleanup.cleanText(record.body);
   }
   record.revision = crypto.randomUUID();
   record.updatedAt = new Date().toISOString();

@@ -2687,7 +2687,7 @@ function captureLink(value) {
   const text = value.trim();
   if (text.length > 8192 || !/^https?:\/\/[^/?#]/i.test(text) || /[\s\x00-\x1f\x7f<>\\]/.test(text)) return null;
   const url = webLink(text);
-  return url?.hostname && !url.username && !url.password ? text : null;
+  return url?.hostname && !url.username && !url.password ? inntakeLinkCleanup.cleanUrl(text) : null;
 }
 
 function isYouTubePlaylist(value) {
@@ -2844,6 +2844,20 @@ $('#capture-open').addEventListener('click', () => {
   saveItemCapture({id: crypto.randomUUID(), note, collection}, {quick: true, searchValue});
 });
 captureForm.elements.url.addEventListener('input', showCaptureRetry);
+captureForm.elements.url.addEventListener('paste', event => {
+  const field = captureForm.elements.url;
+  if (field.selectionStart !== 0 || field.selectionEnd !== field.value.length) return;
+  const url = clipboardLink(event.clipboardData?.getData('text/plain') || '');
+  if (!url) return;
+  event.preventDefault();
+  field.value = url;
+  showCaptureRetry();
+});
+captureForm.elements.url.addEventListener('change', () => {
+  const field = captureForm.elements.url;
+  const url = captureLink(field.value);
+  if (url) field.value = url;
+});
 $('#capture-close').addEventListener('click', () => { if (!captureSaving) captureDialog.close(); });
 captureDialog.addEventListener('cancel', event => { if (captureSaving) event.preventDefault(); });
 enableBackdropDismiss(captureDialog, () => !captureSaving);
@@ -2896,6 +2910,7 @@ async function savePlaylistCapture(url, collection, {quick = false, searchValue 
 
 async function saveItemCapture(payload, {quick = false, searchValue = null} = {}) {
   if (captureSaving) return;
+  if (payload.url) payload = {...payload, url: captureLink(payload.url) || payload.url};
   const kind = payload.url ? 'Link' : 'Note';
   savePendingCapture(payload);
   beginCapture(`Saving ${kind.toLowerCase()}…`, quick);
